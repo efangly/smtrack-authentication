@@ -82,12 +82,12 @@ spec:
           valueFrom:
             configMapKeyRef:
               name: redis-config
-              key: RADIS_HOST
+              key: REDIS_HOST
         - name: REDIS_PASSWORD
           valueFrom:
             configMapKeyRef:
               name: redis-config
-              key: RADIS_PASSWORD
+              key: REDIS_PASSWORD
         - name: RABBITMQ
           valueFrom:
             configMapKeyRef:

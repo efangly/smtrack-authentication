@@ -7,7 +7,6 @@ import (
 	"syscall"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/cors"
 
 	"github.com/tng-coop/auth-service/config"
 	"github.com/tng-coop/auth-service/internal/adapters/driven/cache"
@@ -65,7 +64,8 @@ func main() {
 	// Global middleware
 	app.Use(middleware.Recover())
 	app.Use(middleware.RequestLogger())
-	app.Use(cors.New())
+	// CORS is handled by KrakenD API Gateway — do not add CORS middleware here
+	// to avoid duplicate Access-Control-Allow-Origin headers
 
 	// Setup routes
 	router := httpAdapter.NewRouter(app, cfg, authHandler, userHandler, hospitalHandler, wardHandler, healthHandler)

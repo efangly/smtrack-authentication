@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentication
+  namespace: smtrack
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: authentication
+  template:
+    metadata:
+      labels:
+        app: authentication
+    spec:
+      containers:
+      - name: authentication
+        image: siamatic/smtrack-auth-service:1.2.2
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /auth/health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 15
+          successThreshold: 1
+          failureThreshold: 5
+        livenessProbe:
+          httpGet:
+            path: /auth/health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 5
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 500m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: authentication-config
+              key: DATABASE_URL
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: authentication-config
+              key: PORT
+        - name: JWT_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: jwt-secret
+              key: JWT_SECRET
+        - name: JWT_REFRESH_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: jwt-secret
+              key: JWT_REFRESH_SECRET
+        - name: EXPIRE_TIME
+          valueFrom:
+            configMapKeyRef:
+              name: authentication-config
+              key: EXPIRE_TIME
+        - name: REFRESH_EXPIRE_TIME
+          valueFrom:
+            configMapKeyRef:
+              name: authentication-config
+              key: REFRESH_EXPIRE_TIME
+        - name: UPLOAD_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: authentication-config
+              key: UPLOAD_PATH
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: redis-config
+              key: RADIS_HOST
+        - name: REDIS_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: redis-config
+              key: RADIS_PASSWORD
+        - name: RABBITMQ
+          valueFrom:
+            configMapKeyRef:
+              name: rabbitmq-config
+              key: RABBITMQ
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentication
+  namespace: smtrack
+spec:
+  selector:
+    app: authentication
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

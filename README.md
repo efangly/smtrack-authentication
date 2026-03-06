@@ -192,5 +192,5 @@ Kubernetes probes (readiness & liveness) hit this endpoint every 30 seconds.
 ## Docker Image
 
 ```
-siamatic/smtrack-auth-service:1.2.2
+siamatic/smtrack-auth-service:2.0.0
 ```

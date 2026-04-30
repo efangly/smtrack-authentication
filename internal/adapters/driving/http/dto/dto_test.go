@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tng-coop/auth-service/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
 )
 
 func TestCreateUserRequest_ToUser(t *testing.T) {

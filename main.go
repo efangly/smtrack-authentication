@@ -8,16 +8,16 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"github.com/tng-coop/auth-service/config"
-	"github.com/tng-coop/auth-service/internal/adapters/driven/cache"
-	"github.com/tng-coop/auth-service/internal/adapters/driven/database"
-	"github.com/tng-coop/auth-service/internal/adapters/driven/messaging"
-	"github.com/tng-coop/auth-service/internal/adapters/driven/upload"
-	httpAdapter "github.com/tng-coop/auth-service/internal/adapters/driving/http"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/handlers"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/middleware"
-	"github.com/tng-coop/auth-service/internal/core/services"
-	"github.com/tng-coop/auth-service/pkg/logger"
+	"github.com/efangly/smtrack-authentication/config"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driven/cache"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driven/database"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driven/messaging"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driven/upload"
+	httpAdapter "github.com/efangly/smtrack-authentication/internal/adapters/driving/http"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/handlers"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/middleware"
+	"github.com/efangly/smtrack-authentication/internal/core/services"
+	"github.com/efangly/smtrack-authentication/pkg/logger"
 )
 
 func main() {

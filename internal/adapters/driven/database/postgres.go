@@ -1,8 +1,8 @@
 package database
 
 import (
-	"github.com/tng-coop/auth-service/config"
-	applog "github.com/tng-coop/auth-service/pkg/logger"
+	"github.com/efangly/smtrack-authentication/config"
+	applog "github.com/efangly/smtrack-authentication/pkg/logger"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

@@ -1,4 +1,4 @@
-module github.com/tng-coop/auth-service
+module github.com/efangly/smtrack-authentication
 
 go 1.25.1
 

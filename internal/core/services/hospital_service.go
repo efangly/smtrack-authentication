@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/pkg/logger"
 	"github.com/google/uuid"
-	"github.com/tng-coop/auth-service/internal/core/domain"
-	"github.com/tng-coop/auth-service/internal/core/ports"
-	"github.com/tng-coop/auth-service/pkg/logger"
 )
 
 type hospitalService struct {
@@ -189,6 +189,9 @@ func buildHospitalConditions(caller *ports.JwtPayload) (map[string]any, []map[st
 		key = "hospital:HID-DEVELOPMENT"
 	case "SUPER":
 		key = "hospital"
+	case "USER", "LEGACY_USER", "GUEST":
+		conditions = map[string]any{"wardId": caller.WardID}
+		key = fmt.Sprintf("hospital:%s", caller.WardID)
 	default:
 		key = "hospital"
 	}

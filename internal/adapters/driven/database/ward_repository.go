@@ -3,8 +3,8 @@ package database
 import (
 	"context"
 
-	"github.com/tng-coop/auth-service/internal/core/domain"
-	"github.com/tng-coop/auth-service/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

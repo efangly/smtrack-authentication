@@ -9,9 +9,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tng-coop/auth-service/config"
-	"github.com/tng-coop/auth-service/internal/core/domain"
-	"github.com/tng-coop/auth-service/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/config"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"golang.org/x/crypto/bcrypt"
 )
 

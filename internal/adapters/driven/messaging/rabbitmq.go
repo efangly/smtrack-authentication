@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/tng-coop/auth-service/config"
-	"github.com/tng-coop/auth-service/internal/core/ports"
-	"github.com/tng-coop/auth-service/pkg/logger"
+	"github.com/efangly/smtrack-authentication/config"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/pkg/logger"
 )
 
 type rabbitmqAdapter struct {

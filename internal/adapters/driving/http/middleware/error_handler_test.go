@@ -11,7 +11,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/dto"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
 )
 
 func TestErrorHandler_FiberError(t *testing.T) {

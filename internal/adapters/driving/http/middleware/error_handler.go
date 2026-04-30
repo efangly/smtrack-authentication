@@ -5,8 +5,8 @@ import (
 	"runtime/debug"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/dto"
-	"github.com/tng-coop/auth-service/pkg/logger"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
+	"github.com/efangly/smtrack-authentication/pkg/logger"
 )
 
 // ErrorHandler is a custom error handler for Fiber

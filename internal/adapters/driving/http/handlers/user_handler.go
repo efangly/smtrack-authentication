@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"github.com/gofiber/fiber/v3"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/dto"
-	"github.com/tng-coop/auth-service/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 )
 
 // UserHandler handles user HTTP requests

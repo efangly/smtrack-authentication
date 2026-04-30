@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/tng-coop/auth-service/pkg/logger"
+	"github.com/efangly/smtrack-authentication/pkg/logger"
 )
 
 // RequestLogger returns a Fiber middleware that logs each request as structured JSON

@@ -2,10 +2,10 @@ package http
 
 import (
 	"github.com/gofiber/fiber/v3"
-	"github.com/tng-coop/auth-service/config"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/handlers"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/middleware"
-	"github.com/tng-coop/auth-service/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/config"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/handlers"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/middleware"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
 )
 
 type Router struct {

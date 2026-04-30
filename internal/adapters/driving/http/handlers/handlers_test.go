@@ -14,9 +14,9 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tng-coop/auth-service/internal/adapters/driving/http/dto"
-	"github.com/tng-coop/auth-service/internal/core/domain"
-	"github.com/tng-coop/auth-service/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 )
 
 // ── Mock services ──────────────────────────────────────────────────

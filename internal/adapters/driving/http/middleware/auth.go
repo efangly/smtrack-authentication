@@ -6,7 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/tng-coop/auth-service/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 )
 
 func JWTAuth(jwtSecret string) fiber.Handler {

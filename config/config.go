@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/tng-coop/auth-service/pkg/logger"
+	"github.com/efangly/smtrack-authentication/pkg/logger"
 )
 
 type Config struct {

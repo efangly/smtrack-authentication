@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/tng-coop/auth-service/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
 )
 
 type UserRepository interface {

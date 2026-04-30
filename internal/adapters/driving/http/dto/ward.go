@@ -1,6 +1,6 @@
 package dto
 
-import "github.com/tng-coop/auth-service/internal/core/domain"
+import "github.com/efangly/smtrack-authentication/internal/core/domain"
 
 // CreateWardRequest represents the create ward request body
 type CreateWardRequest struct {

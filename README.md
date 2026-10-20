@@ -84,8 +84,8 @@ All routes are prefixed with `/auth`.
 | `POST` | `/auth/ward` | Create ward | SUPER, SERVICE |
 | `GET` | `/auth/ward` | List all wards | Any authenticated |
 | `GET` | `/auth/ward/:id` | Get ward by ID | Any authenticated |
-| `PUT` | `/auth/ward/:id` | Update ward | Any authenticated |
-| `DELETE` | `/auth/ward/:id` | Delete ward | Any authenticated |
+| `PUT` | `/auth/ward/:id` | Update ward | SUPER, SERVICE |
+| `DELETE` | `/auth/ward/:id` | Delete ward | SUPER, SERVICE |
 
 ## User Roles
 

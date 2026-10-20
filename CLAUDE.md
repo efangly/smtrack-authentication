@@ -85,6 +85,10 @@ These were bugs once. Do not regress them.
   a non-admin-tier caller may only touch its own record, and `role`/`status`/`wardId` are
   stripped from its update. Use `ports.JwtPayload.IsAdminTier()` for that test —
   admin tier is SUPER, SERVICE, ADMIN, LEGACY_ADMIN.
+- **Every mutating route carries a `RolesGuard`.** `PUT`/`DELETE /auth/ward/:id` once had
+  none, so any token — including a self-registered GUEST — could rename or delete any ward.
+  `internal/adapters/driving/http/router_test.go` drives the real route table; extend it
+  when adding a guarded route.
 - **Refresh rebuilds claims from the database** (`authService.RefreshTokens`), never by
   copying the old token's claims, so a demoted or deactivated user loses access at the next
   refresh instead of keeping it for the token's remaining lifetime.

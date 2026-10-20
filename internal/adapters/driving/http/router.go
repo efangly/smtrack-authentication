@@ -117,8 +117,17 @@ func (r *Router) Setup() {
 	)
 	wardGroup.Get("/", r.wardHandler.FindAll)
 	wardGroup.Get("/:id", r.wardHandler.FindOne)
-	wardGroup.Put("/:id", r.wardHandler.Update)
-	wardGroup.Delete("/:id", r.wardHandler.Remove)
+	// Update and Remove carry the same guard as Create: without it any
+	// authenticated caller — including a self-registered GUEST — could
+	// rename or delete any ward.
+	wardGroup.Put("/:id",
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
+		r.wardHandler.Update,
+	)
+	wardGroup.Delete("/:id",
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
+		r.wardHandler.Remove,
+	)
 
 	// Audit log routes (read-only, admin tier)
 	auditGroup := auth.Group("/audit", jwtAuth)

@@ -32,7 +32,7 @@ func (s *stubWardService) Create(ctx context.Context, ward *domain.Ward, caller 
 func (s *stubWardService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Ward, error) {
 	return nil, nil
 }
-func (s *stubWardService) FindOne(ctx context.Context, id string) (*domain.Ward, error) {
+func (s *stubWardService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Ward, error) {
 	return &domain.Ward{ID: id}, nil
 }
 func (s *stubWardService) Update(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error) {
@@ -44,9 +44,23 @@ func (s *stubWardService) Remove(ctx context.Context, id string, caller *ports.J
 	return "Ward deleted successfully", nil
 }
 
+// stubAuditService records whether a listing got past the router.
+type stubAuditService struct{ listed bool }
+
+func (s *stubAuditService) Record(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *ports.JwtPayload, changes any) {
+}
+func (s *stubAuditService) FindAll(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
+	s.listed = true
+	return nil, nil
+}
+
 // newTestRouter wires the real route table with only the ward service backed;
 // the other handlers are never reached by these tests.
 func newTestRouter(wardSvc ports.WardService) *fiber.App {
+	return newTestRouterWith(wardSvc, &stubAuditService{})
+}
+
+func newTestRouterWith(wardSvc ports.WardService, auditSvc ports.AuditService) *fiber.App {
 	app := fiber.New()
 	cfg := &config.Config{JWTSecret: testJWTSecret, JWTRefreshSecret: "test-refresh-secret"}
 	NewRouter(app, cfg,
@@ -54,7 +68,7 @@ func newTestRouter(wardSvc ports.WardService) *fiber.App {
 		handlers.NewUserHandler(nil),
 		handlers.NewHospitalHandler(nil),
 		handlers.NewWardHandler(wardSvc),
-		handlers.NewAuditHandler(nil),
+		handlers.NewAuditHandler(auditSvc),
 		handlers.NewHealthHandler(),
 	).Setup()
 	return app
@@ -76,14 +90,15 @@ func tokenFor(t *testing.T, role domain.Role) string {
 	return signed
 }
 
+var allRoles = []domain.Role{
+	domain.RoleSuper, domain.RoleService, domain.RoleAdmin, domain.RoleLegacyAdmin,
+	domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest,
+}
+
 func TestRouter_WardMutations_RequireSuperOrService(t *testing.T) {
 	allowed := map[domain.Role]bool{
 		domain.RoleSuper:   true,
 		domain.RoleService: true,
-	}
-	roles := []domain.Role{
-		domain.RoleSuper, domain.RoleService, domain.RoleAdmin, domain.RoleLegacyAdmin,
-		domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest,
 	}
 	requests := []struct {
 		method string
@@ -94,7 +109,7 @@ func TestRouter_WardMutations_RequireSuperOrService(t *testing.T) {
 	}
 
 	for _, rq := range requests {
-		for _, role := range roles {
+		for _, role := range allRoles {
 			t.Run(rq.method+"/"+string(role), func(t *testing.T) {
 				svc := &stubWardService{}
 				app := newTestRouter(svc)
@@ -115,5 +130,28 @@ func TestRouter_WardMutations_RequireSuperOrService(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Audit logs span every hospital, so hospital-scoped admins must not read them.
+func TestRouter_AuditLogs_RequireSuperOrService(t *testing.T) {
+	for _, role := range allRoles {
+		t.Run(string(role), func(t *testing.T) {
+			audit := &stubAuditService{}
+			app := newTestRouterWith(&stubWardService{}, audit)
+
+			req := httptest.NewRequest(http.MethodGet, "/auth/audit", nil)
+			req.Header.Set("Authorization", "Bearer "+tokenFor(t, role))
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+
+			if role == domain.RoleSuper || role == domain.RoleService {
+				assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+				assert.True(t, audit.listed)
+			} else {
+				assert.Equal(t, fiber.StatusForbidden, resp.StatusCode)
+				assert.False(t, audit.listed, "service must not be called")
+			}
+		})
 	}
 }

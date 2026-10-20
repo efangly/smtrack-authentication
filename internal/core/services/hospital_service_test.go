@@ -111,7 +111,7 @@ func TestHospitalService_FindOne_Success(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	h, err := svc.FindOne(context.Background(), "H1")
+	h, err := svc.FindOne(context.Background(), "H1", superCaller)
 	require.NoError(t, err)
 	assert.Equal(t, "H1", h.ID)
 }
@@ -124,7 +124,7 @@ func TestHospitalService_FindOne_NotFound(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	_, err := svc.FindOne(context.Background(), "nonexistent")
+	_, err := svc.FindOne(context.Background(), "nonexistent", superCaller)
 	assert.EqualError(t, err, "hospital not found")
 }
 

@@ -64,7 +64,7 @@ func (h *UserHandler) FindOne(c fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(dto.FailResponse("You can only access your own account"))
 	}
 
-	user, err := h.userService.FindOne(c.Context(), id)
+	user, err := h.userService.FindOne(c.Context(), id, caller)
 	if err != nil {
 		return serviceError(c, fiber.StatusNotFound, err)
 	}

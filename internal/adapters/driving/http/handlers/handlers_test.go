@@ -49,7 +49,8 @@ func (m *mockAuthService) ResetPassword(ctx context.Context, username string, pa
 type mockUserService struct {
 	CreateFn         func(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error)
 	FindAllFn        func(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error)
-	FindOneFn        func(ctx context.Context, id string) (*domain.User, error)
+	FindOneFn        func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error)
+	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
 	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error)
@@ -61,8 +62,11 @@ func (m *mockUserService) Create(ctx context.Context, user *domain.User, caller 
 func (m *mockUserService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error) {
 	return m.FindAllFn(ctx, caller)
 }
-func (m *mockUserService) FindOne(ctx context.Context, id string) (*domain.User, error) {
-	return m.FindOneFn(ctx, id)
+func (m *mockUserService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.FindOneFn(ctx, id, caller)
+}
+func (m *mockUserService) FindByID(ctx context.Context, id string) (*domain.User, error) {
+	return m.FindByIDFn(ctx, id)
 }
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
@@ -77,7 +81,7 @@ func (m *mockUserService) Remove(ctx context.Context, id string, caller *ports.J
 type mockHospitalService struct {
 	CreateFn  func(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error)
 	FindAllFn func(ctx context.Context, caller *ports.JwtPayload) ([]domain.Hospital, error)
-	FindOneFn func(ctx context.Context, id string) (*domain.Hospital, error)
+	FindOneFn func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error)
 	UpdateFn  func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error)
 	RemoveFn  func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error)
 }
@@ -88,8 +92,8 @@ func (m *mockHospitalService) Create(ctx context.Context, hospital *domain.Hospi
 func (m *mockHospitalService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Hospital, error) {
 	return m.FindAllFn(ctx, caller)
 }
-func (m *mockHospitalService) FindOne(ctx context.Context, id string) (*domain.Hospital, error) {
-	return m.FindOneFn(ctx, id)
+func (m *mockHospitalService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error) {
+	return m.FindOneFn(ctx, id, caller)
 }
 func (m *mockHospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
@@ -101,7 +105,7 @@ func (m *mockHospitalService) Remove(ctx context.Context, id string, caller *por
 type mockWardService struct {
 	CreateFn  func(ctx context.Context, ward *domain.Ward, caller *ports.JwtPayload) (*domain.Ward, error)
 	FindAllFn func(ctx context.Context, caller *ports.JwtPayload) ([]domain.Ward, error)
-	FindOneFn func(ctx context.Context, id string) (*domain.Ward, error)
+	FindOneFn func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Ward, error)
 	UpdateFn  func(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error)
 	RemoveFn  func(ctx context.Context, id string, caller *ports.JwtPayload) (string, error)
 }
@@ -112,8 +116,8 @@ func (m *mockWardService) Create(ctx context.Context, ward *domain.Ward, caller 
 func (m *mockWardService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Ward, error) {
 	return m.FindAllFn(ctx, caller)
 }
-func (m *mockWardService) FindOne(ctx context.Context, id string) (*domain.Ward, error) {
-	return m.FindOneFn(ctx, id)
+func (m *mockWardService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Ward, error) {
+	return m.FindOneFn(ctx, id, caller)
 }
 func (m *mockWardService) Update(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error) {
 	return m.UpdateFn(ctx, id, data, caller)
@@ -415,7 +419,7 @@ func TestUserHandler_FindAll_NoCaller(t *testing.T) {
 
 func TestUserHandler_FindOne_Success(t *testing.T) {
 	svc := &mockUserService{
-		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+		FindOneFn: func(_ context.Context, id string, _ *ports.JwtPayload) (*domain.User, error) {
 			return &domain.User{ID: id, Username: "alice"}, nil
 		},
 	}
@@ -431,7 +435,7 @@ func TestUserHandler_FindOne_Success(t *testing.T) {
 
 func TestUserHandler_FindOne_NotFound(t *testing.T) {
 	svc := &mockUserService{
-		FindOneFn: func(_ context.Context, _ string) (*domain.User, error) {
+		FindOneFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.User, error) {
 			return nil, errors.New("not found")
 		},
 	}
@@ -493,13 +497,13 @@ func TestHospitalHandler_FindAll_NoCaller(t *testing.T) {
 
 func TestHospitalHandler_FindOne_Success(t *testing.T) {
 	svc := &mockHospitalService{
-		FindOneFn: func(_ context.Context, id string) (*domain.Hospital, error) {
+		FindOneFn: func(_ context.Context, id string, _ *ports.JwtPayload) (*domain.Hospital, error) {
 			return &domain.Hospital{ID: id}, nil
 		},
 	}
 	app := fiber.New()
 	h := NewHospitalHandler(svc)
-	app.Get("/hospitals/:id", h.FindOne)
+	app.Get("/hospitals/:id", injectCaller(&ports.JwtPayload{ID: "S1", Role: "SUPER"}), h.FindOne)
 
 	req := httptest.NewRequest(http.MethodGet, "/hospitals/H1", nil)
 	resp, err := app.Test(req)
@@ -509,13 +513,13 @@ func TestHospitalHandler_FindOne_Success(t *testing.T) {
 
 func TestHospitalHandler_FindOne_NotFound(t *testing.T) {
 	svc := &mockHospitalService{
-		FindOneFn: func(_ context.Context, _ string) (*domain.Hospital, error) {
+		FindOneFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.Hospital, error) {
 			return nil, errors.New("not found")
 		},
 	}
 	app := fiber.New()
 	h := NewHospitalHandler(svc)
-	app.Get("/hospitals/:id", h.FindOne)
+	app.Get("/hospitals/:id", injectCaller(&ports.JwtPayload{ID: "S1", Role: "SUPER"}), h.FindOne)
 
 	req := httptest.NewRequest(http.MethodGet, "/hospitals/NOPE", nil)
 	resp, err := app.Test(req)
@@ -626,13 +630,13 @@ func TestWardHandler_FindAll_NoCaller(t *testing.T) {
 
 func TestWardHandler_FindOne_Success(t *testing.T) {
 	svc := &mockWardService{
-		FindOneFn: func(_ context.Context, id string) (*domain.Ward, error) {
+		FindOneFn: func(_ context.Context, id string, _ *ports.JwtPayload) (*domain.Ward, error) {
 			return &domain.Ward{ID: id}, nil
 		},
 	}
 	app := fiber.New()
 	h := NewWardHandler(svc)
-	app.Get("/wards/:id", h.FindOne)
+	app.Get("/wards/:id", injectCaller(&ports.JwtPayload{ID: "S1", Role: "SUPER"}), h.FindOne)
 
 	req := httptest.NewRequest(http.MethodGet, "/wards/W1", nil)
 	resp, err := app.Test(req)
@@ -642,13 +646,13 @@ func TestWardHandler_FindOne_Success(t *testing.T) {
 
 func TestWardHandler_FindOne_NotFound(t *testing.T) {
 	svc := &mockWardService{
-		FindOneFn: func(_ context.Context, _ string) (*domain.Ward, error) {
+		FindOneFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.Ward, error) {
 			return nil, errors.New("not found")
 		},
 	}
 	app := fiber.New()
 	h := NewWardHandler(svc)
-	app.Get("/wards/:id", h.FindOne)
+	app.Get("/wards/:id", injectCaller(&ports.JwtPayload{ID: "S1", Role: "SUPER"}), h.FindOne)
 
 	req := httptest.NewRequest(http.MethodGet, "/wards/NOPE", nil)
 	resp, err := app.Test(req)
@@ -738,7 +742,7 @@ func TestGetCaller_WrongType(t *testing.T) {
 
 func TestUserHandler_FindOne_ForbiddenForOtherUser(t *testing.T) {
 	svc := &mockUserService{
-		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+		FindOneFn: func(_ context.Context, id string, _ *ports.JwtPayload) (*domain.User, error) {
 			return &domain.User{ID: id}, nil
 		},
 	}

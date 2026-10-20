@@ -69,7 +69,13 @@ type AuthService interface {
 type UserService interface {
 	Create(ctx context.Context, user *domain.User, caller *JwtPayload) (*domain.User, error)
 	FindAll(ctx context.Context, caller *JwtPayload) ([]domain.User, error)
-	FindOne(ctx context.Context, id string) (*domain.User, error)
+	// FindOne is the caller-facing lookup: it is scoped to what caller may see
+	// and reports anything outside that scope as not found.
+	FindOne(ctx context.Context, id string, caller *JwtPayload) (*domain.User, error)
+	// FindByID and FindByUsername are unscoped, uncached internal lookups for
+	// the auth flows (login, refresh, reset). They return nil, nil when no
+	// user matches. Never expose them to a request directly.
+	FindByID(ctx context.Context, id string) (*domain.User, error)
 	FindByUsername(ctx context.Context, username string) (*domain.User, error)
 	Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *JwtPayload) (*domain.User, error)
 	Remove(ctx context.Context, id string, caller *JwtPayload) (*domain.User, error)
@@ -79,7 +85,7 @@ type UserService interface {
 type HospitalService interface {
 	Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *JwtPayload) (*domain.Hospital, error)
 	FindAll(ctx context.Context, caller *JwtPayload) ([]domain.Hospital, error)
-	FindOne(ctx context.Context, id string) (*domain.Hospital, error)
+	FindOne(ctx context.Context, id string, caller *JwtPayload) (*domain.Hospital, error)
 	Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *JwtPayload) (*domain.Hospital, error)
 	Remove(ctx context.Context, id string, caller *JwtPayload) (*domain.Hospital, error)
 }
@@ -88,7 +94,7 @@ type HospitalService interface {
 type WardService interface {
 	Create(ctx context.Context, ward *domain.Ward, caller *JwtPayload) (*domain.Ward, error)
 	FindAll(ctx context.Context, caller *JwtPayload) ([]domain.Ward, error)
-	FindOne(ctx context.Context, id string) (*domain.Ward, error)
+	FindOne(ctx context.Context, id string, caller *JwtPayload) (*domain.Ward, error)
 	Update(ctx context.Context, id string, data map[string]any, caller *JwtPayload) (*domain.Ward, error)
 	Remove(ctx context.Context, id string, caller *JwtPayload) (string, error)
 }

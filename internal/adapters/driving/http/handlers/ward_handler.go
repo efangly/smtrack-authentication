@@ -53,7 +53,12 @@ func (h *WardHandler) FindAll(c fiber.Ctx) error {
 func (h *WardHandler) FindOne(c fiber.Ctx) error {
 	id := c.Params("id")
 
-	ward, err := h.wardService.FindOne(c.Context(), id)
+	caller := getCaller(c)
+	if caller == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(dto.FailResponse("Unauthorized"))
+	}
+
+	ward, err := h.wardService.FindOne(c.Context(), id, caller)
 	if err != nil {
 		return serviceError(c, fiber.StatusNotFound, err)
 	}

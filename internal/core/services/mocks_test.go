@@ -168,7 +168,8 @@ func (m *mockUpload) Delete(path string, filename string) error {
 type mockUserService struct {
 	CreateFn         func(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error)
 	FindAllFn        func(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error)
-	FindOneFn        func(ctx context.Context, id string) (*domain.User, error)
+	FindOneFn        func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error)
+	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
 	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error)
@@ -180,8 +181,11 @@ func (m *mockUserService) Create(ctx context.Context, user *domain.User, caller 
 func (m *mockUserService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error) {
 	return m.FindAllFn(ctx, caller)
 }
-func (m *mockUserService) FindOne(ctx context.Context, id string) (*domain.User, error) {
-	return m.FindOneFn(ctx, id)
+func (m *mockUserService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.FindOneFn(ctx, id, caller)
+}
+func (m *mockUserService) FindByID(ctx context.Context, id string) (*domain.User, error) {
+	return m.FindByIDFn(ctx, id)
 }
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)

@@ -92,12 +92,17 @@ func (s *hospitalService) FindAll(ctx context.Context, caller *ports.JwtPayload)
 	return hospitals, nil
 }
 
-func (s *hospitalService) FindOne(ctx context.Context, id string) (*domain.Hospital, error) {
+func (s *hospitalService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error) {
+	if caller == nil {
+		return nil, errors.New("unauthorized")
+	}
 	hospital, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if hospital == nil {
+	// Out of scope reads as not found, so a lookup by id never confirms a
+	// hospital the caller's listing would hide.
+	if hospital == nil || !canSeeHospital(caller, hospital) {
 		return nil, errors.New("hospital not found")
 	}
 	return hospital, nil

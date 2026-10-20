@@ -17,15 +17,16 @@ import (
 )
 
 type userService struct {
-	repo   ports.UserRepository
-	cache  ports.CachePort
-	upload ports.FileUploadPort
-	audit  ports.AuditService
+	repo     ports.UserRepository
+	wardRepo ports.WardRepository
+	cache    ports.CachePort
+	upload   ports.FileUploadPort
+	audit    ports.AuditService
 }
 
 // NewUserService creates a new user service
-func NewUserService(repo ports.UserRepository, cache ports.CachePort, upload ports.FileUploadPort, audit ports.AuditService) ports.UserService {
-	return &userService{repo: repo, cache: cache, upload: upload, audit: audit}
+func NewUserService(repo ports.UserRepository, wardRepo ports.WardRepository, cache ports.CachePort, upload ports.FileUploadPort, audit ports.AuditService) ports.UserService {
+	return &userService{repo: repo, wardRepo: wardRepo, cache: cache, upload: upload, audit: audit}
 }
 
 func (s *userService) Create(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error) {
@@ -42,8 +43,13 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *por
 		if user.Role != domain.RoleGuest {
 			return nil, fmt.Errorf("you cannot assign role %s", user.Role)
 		}
-	} else if !caller.CanAssign(user.Role) {
-		return nil, fmt.Errorf("you cannot assign role %s", user.Role)
+	} else {
+		if !caller.CanAssign(user.Role) {
+			return nil, fmt.Errorf("you cannot assign role %s", user.Role)
+		}
+		if err := s.checkWardInScope(ctx, caller, user.WardID); err != nil {
+			return nil, err
+		}
 	}
 	if user.ID == "" {
 		user.ID = uuid.New().String()
@@ -100,7 +106,25 @@ func (s *userService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]
 	return users, nil
 }
 
-func (s *userService) FindOne(ctx context.Context, id string) (*domain.User, error) {
+func (s *userService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+	if caller == nil {
+		return nil, errors.New("unauthorized")
+	}
+	if caller.ID != id && !caller.IsAdminTier() {
+		return nil, errors.New("user not found")
+	}
+
+	user, err := s.findOneCached(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if caller.ID != id && !canManageUsersIn(caller, userHosID(user)) {
+		return nil, errors.New("user not found")
+	}
+	return user, nil
+}
+
+func (s *userService) findOneCached(ctx context.Context, id string) (*domain.User, error) {
 	cacheKey := fmt.Sprintf("user:%s", id)
 
 	cached, err := s.cache.Get(ctx, cacheKey)
@@ -125,6 +149,10 @@ func (s *userService) FindOne(ctx context.Context, id string) (*domain.User, err
 	return user, nil
 }
 
+func (s *userService) FindByID(ctx context.Context, id string) (*domain.User, error) {
+	return s.repo.FindByID(ctx, id)
+}
+
 func (s *userService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	// Do not use cache here: domain.User.Password has json:"-" so it would be
 	// lost on marshal/unmarshal, causing bcrypt comparison to always fail on
@@ -140,6 +168,14 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 	target, err := s.authorizeChange(ctx, id, caller)
 	if err != nil {
 		return nil, err
+	}
+
+	if raw, ok := data["wardId"]; ok {
+		if wardID, _ := raw.(string); wardID != target.WardID {
+			if err := s.checkWardInScope(ctx, caller, wardID); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if raw, ok := data["role"]; ok {
@@ -235,7 +271,9 @@ func (s *userService) Remove(ctx context.Context, id string, caller *ports.JwtPa
 
 // authorizeChange loads the user about to be updated or removed and checks
 // that caller may act on it: anyone may act on their own record, but acting on
-// somebody else's requires a role ceiling at or above that user's current role.
+// somebody else's requires that user to be in the caller's tenant scope and
+// within its role ceiling. A user outside the scope is reported as not found so
+// its existence is not revealed.
 // It reads the repository directly so the decision is never made on a stale
 // cached role.
 func (s *userService) authorizeChange(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
@@ -249,10 +287,33 @@ func (s *userService) authorizeChange(ctx context.Context, id string, caller *po
 	if target == nil {
 		return nil, errors.New("user not found")
 	}
-	if caller.ID != id && !caller.CanAssign(target.Role) {
-		return nil, errors.New("you do not have permission to modify this user")
+	if caller.ID != id {
+		if !canManageUsersIn(caller, userHosID(target)) {
+			return nil, errors.New("user not found")
+		}
+		if !caller.CanAssign(target.Role) {
+			return nil, errors.New("you do not have permission to modify this user")
+		}
 	}
 	return target, nil
+}
+
+// checkWardInScope rejects placing a user into a ward outside the caller's
+// tenant scope. SUPER and SERVICE may use any ward; the database still rejects
+// one that does not exist.
+func (s *userService) checkWardInScope(ctx context.Context, caller *ports.JwtPayload, wardID string) error {
+	switch domain.Role(caller.Role) {
+	case domain.RoleSuper, domain.RoleService:
+		return nil
+	}
+	ward, err := s.wardRepo.FindByID(ctx, wardID)
+	if err != nil {
+		return err
+	}
+	if ward == nil || !canManageUsersIn(caller, ward.HosID) {
+		return errors.New("ward not found")
+	}
+	return nil
 }
 
 // toRole reads a role out of a partial-update map, where it may arrive as a

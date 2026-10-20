@@ -172,7 +172,9 @@ func (s *authService) RefreshTokens(ctx context.Context, tokenStr string) (*port
 	// Rebuild the claims from the current record rather than copying the old
 	// ones: a user who was demoted or deleted must not keep their old rights
 	// for the remaining lifetime of the refresh token.
-	user, err := s.userService.FindOne(ctx, userID)
+	// FindByID bypasses the cache, so a deactivation takes effect at the very
+	// next refresh.
+	user, err := s.userService.FindByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

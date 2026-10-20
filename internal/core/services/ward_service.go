@@ -84,12 +84,16 @@ func (s *wardService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]
 	return wards, nil
 }
 
-func (s *wardService) FindOne(ctx context.Context, id string) (*domain.Ward, error) {
+func (s *wardService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Ward, error) {
+	if caller == nil {
+		return nil, errors.New("unauthorized")
+	}
 	ward, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if ward == nil {
+	// Out of scope reads as not found, as in hospitalService.FindOne.
+	if ward == nil || !canSeeWard(caller, ward) {
 		return nil, errors.New("ward not found")
 	}
 	return ward, nil

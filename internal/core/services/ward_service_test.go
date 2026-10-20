@@ -97,7 +97,7 @@ func TestWardService_FindOne_Success(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	w, err := svc.FindOne(context.Background(), "W1")
+	w, err := svc.FindOne(context.Background(), "W1", superCaller)
 	require.NoError(t, err)
 	assert.Equal(t, "W1", w.ID)
 }
@@ -110,7 +110,7 @@ func TestWardService_FindOne_NotFound(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	_, err := svc.FindOne(context.Background(), "nonexistent")
+	_, err := svc.FindOne(context.Background(), "nonexistent", superCaller)
 	assert.EqualError(t, err, "ward not found")
 }
 

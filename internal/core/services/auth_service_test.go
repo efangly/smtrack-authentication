@@ -187,7 +187,7 @@ func TestAuthService_Login_MissingSecret(t *testing.T) {
 func TestAuthService_RefreshTokens_Success(t *testing.T) {
 	// The new claims come from the current record, not from the old token.
 	userSvc := &mockUserService{
-		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+		FindByIDFn: func(_ context.Context, id string) (*domain.User, error) {
 			return &domain.User{
 				ID:     id,
 				Role:   domain.RoleAdmin,
@@ -325,7 +325,7 @@ func TestAuthService_Register_FindByUsernameError(t *testing.T) {
 func TestAuthService_RefreshTokens_ReflectsCurrentRole(t *testing.T) {
 	// Token was issued while the user was SUPER; the record now says GUEST.
 	userSvc := &mockUserService{
-		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+		FindByIDFn: func(_ context.Context, id string) (*domain.User, error) {
 			return &domain.User{ID: id, Role: domain.RoleGuest, Status: true}, nil
 		},
 	}
@@ -349,7 +349,7 @@ func TestAuthService_RefreshTokens_ReflectsCurrentRole(t *testing.T) {
 
 func TestAuthService_RefreshTokens_InactiveUser(t *testing.T) {
 	userSvc := &mockUserService{
-		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+		FindByIDFn: func(_ context.Context, id string) (*domain.User, error) {
 			return &domain.User{ID: id, Role: domain.RoleGuest, Status: false}, nil
 		},
 	}

@@ -35,10 +35,10 @@
 - [x] unit test ทุกคู่ (caller role × target role) ใน `user_service_test.go`
 
 ### S3 — Tenant scope ของ admin (H2 + M2, High)
-- [ ] `userService.FindOne/Update/Remove`: ADMIN/LEGACY_ADMIN ได้เฉพาะ user ที่ `Ward.HosID == caller.HosID`; ย้าย `wardId` ได้เฉพาะ ward ใน hospital เดียวกัน (ต้องฉีด `WardRepository` เข้า `userService`)
-- [ ] `hospitalService.FindOne`, `wardService.FindOne`: ใช้ scope เดียวกับ `buildHospitalConditions` / `buildWardConditions`
-- [ ] `router.go`: `/auth/audit` → `RolesGuard(RoleSuper, RoleService)`
-- [ ] test ข้ามโรงพยาบาล → 403/404 ทุก endpoint ที่แตะ
+- [x] `userService.FindOne/Update/Remove`: ADMIN/LEGACY_ADMIN ได้เฉพาะ user ที่ `Ward.HosID == caller.HosID`; ย้าย `wardId` ได้เฉพาะ ward ใน hospital เดียวกัน (ต้องฉีด `WardRepository` เข้า `userService`)
+- [x] `hospitalService.FindOne`, `wardService.FindOne`: ใช้ scope เดียวกับ `buildHospitalConditions` / `buildWardConditions`
+- [x] `router.go`: `/auth/audit` → `RolesGuard(RoleSuper, RoleService)`
+- [x] test ข้ามโรงพยาบาล → 403/404 ทุก endpoint ที่แตะ
 
 ### S4 — บัญชีที่ถูกปิดยัง login ได้ (H3, High)
 - [ ] `authService.ValidateUser`: ถ้า `!user.Status` → `nil, nil` (handler ตอบ "Invalid username or password" เหมือนรหัสผิด) โดยยังทำ bcrypt compare ให้เวลาเท่าเดิม

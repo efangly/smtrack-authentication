@@ -129,10 +129,11 @@ func (r *Router) Setup() {
 		r.wardHandler.Remove,
 	)
 
-	// Audit log routes (read-only, admin tier)
+	// Audit log routes (read-only). Logs are not tenant-scoped, so only the
+	// system-wide roles may read them.
 	auditGroup := auth.Group("/audit", jwtAuth)
 	auditGroup.Get("/",
-		middleware.RolesGuard(domain.RoleSuper, domain.RoleService, domain.RoleAdmin, domain.RoleLegacyAdmin),
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
 		r.auditHandler.FindAll,
 	)
 }

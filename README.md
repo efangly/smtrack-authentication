@@ -87,6 +87,18 @@ All routes are prefixed with `/auth`.
 | `PUT` | `/auth/ward/:id` | Update ward | SUPER, SERVICE |
 | `DELETE` | `/auth/ward/:id` | Delete ward | SUPER, SERVICE |
 
+### Audit Log
+
+| Method | Path | Description | Roles |
+|--------|------|-------------|-------|
+| `GET` | `/auth/audit` | List audit entries (`entity`, `action`, `entityId`, `actorId`, `limit`, `offset`) | SUPER, SERVICE |
+
+### Tenant scope
+
+ADMIN and LEGACY_ADMIN are confined to their own hospital: user, hospital and ward
+lookups by id, user updates/deletes, and the ward a user is placed in must all belong to
+it. Anything outside reads as not found. SUPER and SERVICE act system-wide.
+
 ## User Roles
 
 | Role | Description |

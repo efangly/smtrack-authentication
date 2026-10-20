@@ -13,19 +13,33 @@ import (
 )
 
 func newTestUserService(repo *mockUserRepo) (ports.UserService, *mockCache, *mockUpload) {
+	svc, cache, upload, _ := newTestUserServiceWithWards(repo)
+	return svc, cache, upload
+}
+
+func newTestUserServiceWithWards(repo *mockUserRepo) (ports.UserService, *mockCache, *mockUpload, *mockWardRepo) {
 	cache := newMockCache()
 	upload := newMockUpload()
-	svc := NewUserService(repo, cache, upload, newMockAuditService())
-	return svc, cache, upload
+	wards := &mockWardRepo{}
+	svc := NewUserService(repo, wards, cache, upload, newMockAuditService())
+	return svc, cache, upload, wards
 }
 
 // superCaller is an actor that passes every role-ceiling check, for tests
 // that are about something else.
 var superCaller = &ports.JwtPayload{ID: "SUPER-1", Role: string(domain.RoleSuper)}
 
+// findUser returns a user with role in ward W1 of hospital H1.
 func findUser(role domain.Role) func(context.Context, string) (*domain.User, error) {
+	return findUserIn(role, "H1")
+}
+
+func findUserIn(role domain.Role, hosID string) func(context.Context, string) (*domain.User, error) {
 	return func(_ context.Context, id string) (*domain.User, error) {
-		return &domain.User{ID: id, Username: "user1", Role: role}, nil
+		return &domain.User{
+			ID: id, Username: "user1", Role: role, WardID: "W1",
+			Ward: &domain.Ward{ID: "W1", HosID: hosID},
+		}, nil
 	}
 }
 
@@ -137,7 +151,7 @@ func TestUserService_FindOne_Success(t *testing.T) {
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	user, err := svc.FindOne(context.Background(), "U1")
+	user, err := svc.FindOne(context.Background(), "U1", superCaller)
 	require.NoError(t, err)
 	assert.Equal(t, "U1", user.ID)
 }
@@ -150,7 +164,7 @@ func TestUserService_FindOne_NotFound(t *testing.T) {
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	_, err := svc.FindOne(context.Background(), "nonexistent")
+	_, err := svc.FindOne(context.Background(), "nonexistent", superCaller)
 	assert.EqualError(t, err, "user not found")
 }
 
@@ -280,6 +294,16 @@ var assignable = map[domain.Role][]domain.Role{
 	domain.RoleLegacyAdmin: {domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest},
 }
 
+// deniedChange is the error for a caller acting on another user in its own
+// hospital: roles outside the admin tier have no tenant scope at all, so the
+// user reads as not found; admin-tier callers hit the role ceiling instead.
+func deniedChange(caller domain.Role) string {
+	if (&ports.JwtPayload{Role: string(caller)}).IsAdminTier() {
+		return "you do not have permission to modify this user"
+	}
+	return "user not found"
+}
+
 func canAssign(caller, target domain.Role) bool {
 	for _, r := range assignable[caller] {
 		if r == target {
@@ -300,10 +324,13 @@ func TestUserService_Create_RoleCeiling(t *testing.T) {
 						return user, nil
 					},
 				}
-				svc, _, _ := newTestUserService(repo)
-				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole)}
+				svc, _, _, wards := newTestUserServiceWithWards(repo)
+				wards.FindByIDFn = func(_ context.Context, id string) (*domain.Ward, error) {
+					return &domain.Ward{ID: id, HosID: "H1"}, nil
+				}
+				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole), HosID: "H1"}
 
-				_, err := svc.Create(context.Background(), &domain.User{Username: "u1", Role: target}, caller)
+				_, err := svc.Create(context.Background(), &domain.User{Username: "u1", Role: target, WardID: "W1"}, caller)
 				if canAssign(callerRole, target) {
 					assert.NoError(t, err)
 					assert.True(t, created)
@@ -344,14 +371,14 @@ func TestUserService_Update_RoleCeilingOnTarget(t *testing.T) {
 					},
 				}
 				svc, _, _ := newTestUserService(repo)
-				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole)}
+				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole), HosID: "H1"}
 
 				_, err := svc.Update(context.Background(), "OTHER", map[string]any{"display": "x"}, nil, caller)
 				if canAssign(callerRole, targetRole) {
 					assert.NoError(t, err)
 					assert.True(t, updated)
 				} else {
-					assert.EqualError(t, err, "you do not have permission to modify this user")
+					assert.EqualError(t, err, deniedChange(callerRole))
 					assert.False(t, updated, "repo.Update must not be reached")
 				}
 			})
@@ -372,12 +399,12 @@ func TestUserService_Update_RoleCeilingOnNewRole(t *testing.T) {
 					},
 				}
 				svc, _, _ := newTestUserService(repo)
-				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole)}
+				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole), HosID: "H1"}
 
 				_, err := svc.Update(context.Background(), "OTHER", map[string]any{"role": string(newRole)}, nil, caller)
 				switch {
 				case !canAssign(callerRole, domain.RoleGuest):
-					assert.EqualError(t, err, "you do not have permission to modify this user")
+					assert.EqualError(t, err, deniedChange(callerRole))
 				case newRole == domain.RoleGuest || canAssign(callerRole, newRole):
 					assert.NoError(t, err)
 				default:
@@ -461,14 +488,14 @@ func TestUserService_Remove_RoleCeilingOnTarget(t *testing.T) {
 					},
 				}
 				svc, _, _ := newTestUserService(repo)
-				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole)}
+				caller := &ports.JwtPayload{ID: "C1", Role: string(callerRole), HosID: "H1"}
 
 				_, err := svc.Remove(context.Background(), "OTHER", caller)
 				if canAssign(callerRole, targetRole) {
 					assert.NoError(t, err)
 					assert.True(t, deleted)
 				} else {
-					assert.EqualError(t, err, "you do not have permission to modify this user")
+					assert.EqualError(t, err, deniedChange(callerRole))
 					assert.False(t, deleted, "repo.Delete must not be reached")
 				}
 			})

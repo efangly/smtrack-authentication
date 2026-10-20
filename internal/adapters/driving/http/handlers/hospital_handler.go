@@ -54,7 +54,12 @@ func (h *HospitalHandler) FindAll(c fiber.Ctx) error {
 func (h *HospitalHandler) FindOne(c fiber.Ctx) error {
 	id := c.Params("id")
 
-	hospital, err := h.hospitalService.FindOne(c.Context(), id)
+	caller := getCaller(c)
+	if caller == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(dto.FailResponse("Unauthorized"))
+	}
+
+	hospital, err := h.hospitalService.FindOne(c.Context(), id, caller)
 	if err != nil {
 		return serviceError(c, fiber.StatusNotFound, err)
 	}

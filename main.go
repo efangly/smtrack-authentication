@@ -51,7 +51,7 @@ func main() {
 
 	// Initialize core services (use cases)
 	auditService := services.NewAuditService(auditRepo)
-	userService := services.NewUserService(userRepo, redisCache, fileUpload, auditService)
+	userService := services.NewUserService(userRepo, wardRepo, redisCache, fileUpload, auditService)
 	wardService := services.NewWardService(wardRepo, redisCache, msgAdapter, auditService)
 	hospitalService := services.NewHospitalService(hospitalRepo, redisCache, fileUpload, msgAdapter, auditService)
 	authService := services.NewAuthService(userService, redisCache, fileUpload, cfg)

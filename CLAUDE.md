@@ -85,6 +85,13 @@ These were bugs once. Do not regress them.
   a non-admin-tier caller may only touch its own record, and `role`/`status`/`wardId` are
   stripped from its update. Use `ports.JwtPayload.IsAdminTier()` for that test —
   admin tier is SUPER, SERVICE, ADMIN, LEGACY_ADMIN.
+- **Tenant scope is enforced in the services.** ADMIN/LEGACY_ADMIN may only read, change
+  or place users in their own hospital (`canManageUsersIn` in `core/services/scope.go`);
+  `FindOne` for hospitals and wards mirrors the matching `build*Conditions` listing
+  (`canSeeHospital`, `canSeeWard`). Out-of-scope records read as *not found*. Every
+  caller-facing `FindOne` takes the caller; the unscoped `UserService.FindByID` /
+  `FindByUsername` exist only for the auth flows. `/auth/audit` is SUPER/SERVICE only
+  because logs are not tenant-scoped.
 - **Role ceiling is enforced in `userService`, not the handler.** `domain.Role.CanAssign`
   decides which roles a caller may assign *and* which existing users it may update or
   delete: SUPER → any; SERVICE → any but SUPER; ADMIN/LEGACY_ADMIN → USER, LEGACY_USER,

@@ -27,12 +27,12 @@
 - [x] test: `internal/adapters/driving/http/router_test.go` (7 role × PUT/DELETE) + e2e `test/e2e/ward_guard_test.go`
 
 ### S2 — Role ceiling: กันการยกระดับสิทธิ์ (H1, High)
-- [ ] เพิ่ม `domain.Role` rank/กฎ `CanAssign` (ชั่วคราวเป็น method บน `ports.JwtPayload`, ย้ายไป `domain.Actor` ใน Phase 1)
+- [x] เพิ่ม `domain.Role` rank/กฎ `CanAssign` (ชั่วคราวเป็น method บน `ports.JwtPayload`, ย้ายไป `domain.Actor` ใน Phase 1)
   - SUPER → ได้ทุก role · SERVICE → ทุก role ยกเว้น SUPER · ADMIN/LEGACY_ADMIN → USER, LEGACY_USER, GUEST
   - ห้ามเปลี่ยน role ของตัวเอง
-- [ ] enforce ใน `userService.Create` และ `userService.Update` (เมื่อมี key `role`) — คืน domain error (ไม่ wrap)
-- [ ] admin แก้/ลบ user ได้เฉพาะเมื่อ role **ปัจจุบัน** ของเป้าหมายอยู่ในชุดที่ตัวเอง assign ได้
-- [ ] unit test ทุกคู่ (caller role × target role) ใน `user_service_test.go`
+- [x] enforce ใน `userService.Create` และ `userService.Update` (เมื่อมี key `role`) — คืน domain error (ไม่ wrap)
+- [x] admin แก้/ลบ user ได้เฉพาะเมื่อ role **ปัจจุบัน** ของเป้าหมายอยู่ในชุดที่ตัวเอง assign ได้
+- [x] unit test ทุกคู่ (caller role × target role) ใน `user_service_test.go`
 
 ### S3 — Tenant scope ของ admin (H2 + M2, High)
 - [ ] `userService.FindOne/Update/Remove`: ADMIN/LEGACY_ADMIN ได้เฉพาะ user ที่ `Ward.HosID == caller.HosID`; ย้าย `wardId` ได้เฉพาะ ward ใน hospital เดียวกัน (ต้องฉีด `WardRepository` เข้า `userService`)

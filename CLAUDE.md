@@ -85,6 +85,12 @@ These were bugs once. Do not regress them.
   a non-admin-tier caller may only touch its own record, and `role`/`status`/`wardId` are
   stripped from its update. Use `ports.JwtPayload.IsAdminTier()` for that test —
   admin tier is SUPER, SERVICE, ADMIN, LEGACY_ADMIN.
+- **Role ceiling is enforced in `userService`, not the handler.** `domain.Role.CanAssign`
+  decides which roles a caller may assign *and* which existing users it may update or
+  delete: SUPER → any; SERVICE → any but SUPER; ADMIN/LEGACY_ADMIN → USER, LEGACY_USER,
+  GUEST. Nobody may change their own role. A nil caller may only create a GUEST (public
+  register) and may not update or remove. Authorization reads the target from the
+  repository, never the cache.
 - **Every mutating route carries a `RolesGuard`.** `PUT`/`DELETE /auth/ward/:id` once had
   none, so any token — including a self-registered GUEST — could rename or delete any ward.
   `internal/adapters/driving/http/router_test.go` drives the real route table; extend it

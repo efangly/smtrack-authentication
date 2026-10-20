@@ -29,6 +29,15 @@ func (p *JwtPayload) IsAdminTier() bool {
 	return false
 }
 
+// CanAssign reports whether the caller may give role to a user, or modify or
+// delete a user who already holds it. See domain.Role.CanAssign.
+func (p *JwtPayload) CanAssign(role domain.Role) bool {
+	if p == nil {
+		return false
+	}
+	return domain.Role(p.Role).CanAssign(role)
+}
+
 // LoginResult represents the result of a login operation
 type LoginResult struct {
 	Token        string  `json:"token"`

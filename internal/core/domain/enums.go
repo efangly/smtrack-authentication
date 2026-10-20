@@ -21,6 +21,28 @@ func (r Role) IsValid() bool {
 	return false
 }
 
+// CanAssign reports whether a caller holding role r may give target to a
+// user — and, by the same rule, may modify or delete a user who already holds
+// target. This is the role ceiling: nobody can hand out (or act on) a role
+// above what their own tier allows.
+func (r Role) CanAssign(target Role) bool {
+	if !target.IsValid() {
+		return false
+	}
+	switch r {
+	case RoleSuper:
+		return true
+	case RoleService:
+		return target != RoleSuper
+	case RoleAdmin, RoleLegacyAdmin:
+		switch target {
+		case RoleUser, RoleLegacyUser, RoleGuest:
+			return true
+		}
+	}
+	return false
+}
+
 // HosType represents hospital types
 type HosType string
 

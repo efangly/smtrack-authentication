@@ -29,6 +29,37 @@ func TestRole_IsValid(t *testing.T) {
 	}
 }
 
+func TestRole_CanAssign(t *testing.T) {
+	tests := []struct {
+		name   string
+		caller Role
+		target Role
+		want   bool
+	}{
+		{"SUPER may assign SUPER", RoleSuper, RoleSuper, true},
+		{"SUPER may assign GUEST", RoleSuper, RoleGuest, true},
+		{"SERVICE may not assign SUPER", RoleService, RoleSuper, false},
+		{"SERVICE may assign SERVICE", RoleService, RoleService, true},
+		{"SERVICE may assign ADMIN", RoleService, RoleAdmin, true},
+		{"ADMIN may not assign SUPER", RoleAdmin, RoleSuper, false},
+		{"ADMIN may not assign SERVICE", RoleAdmin, RoleService, false},
+		{"ADMIN may not assign ADMIN", RoleAdmin, RoleAdmin, false},
+		{"ADMIN may not assign LEGACY_ADMIN", RoleAdmin, RoleLegacyAdmin, false},
+		{"ADMIN may assign USER", RoleAdmin, RoleUser, true},
+		{"LEGACY_ADMIN may assign LEGACY_USER", RoleLegacyAdmin, RoleLegacyUser, true},
+		{"LEGACY_ADMIN may not assign ADMIN", RoleLegacyAdmin, RoleAdmin, false},
+		{"USER may not assign GUEST", RoleUser, RoleGuest, false},
+		{"GUEST may not assign GUEST", RoleGuest, RoleGuest, false},
+		{"nobody may assign an unknown role", RoleSuper, Role("ROOT"), false},
+		{"nobody may assign an empty role", RoleSuper, Role(""), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.caller.CanAssign(tt.target))
+		})
+	}
+}
+
 func TestHosType_IsValid(t *testing.T) {
 	tests := []struct {
 		name  string

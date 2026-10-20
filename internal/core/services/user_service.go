@@ -36,6 +36,15 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *por
 	} else if !user.Role.IsValid() {
 		return nil, fmt.Errorf("invalid role: %s", user.Role)
 	}
+	// Public registration (no caller) can only ever produce a GUEST; an
+	// authenticated caller is held to its role ceiling.
+	if caller == nil {
+		if user.Role != domain.RoleGuest {
+			return nil, fmt.Errorf("you cannot assign role %s", user.Role)
+		}
+	} else if !caller.CanAssign(user.Role) {
+		return nil, fmt.Errorf("you cannot assign role %s", user.Role)
+	}
 	if user.ID == "" {
 		user.ID = uuid.New().String()
 	}
@@ -128,6 +137,23 @@ func (s *userService) FindByUsername(ctx context.Context, username string) (*dom
 }
 
 func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error) {
+	target, err := s.authorizeChange(ctx, id, caller)
+	if err != nil {
+		return nil, err
+	}
+
+	if raw, ok := data["role"]; ok {
+		role := toRole(raw)
+		if role != target.Role {
+			if caller.ID == id {
+				return nil, errors.New("you cannot change your own role")
+			}
+			if !caller.CanAssign(role) {
+				return nil, fmt.Errorf("you cannot assign role %s", role)
+			}
+		}
+	}
+
 	if file != nil {
 		picURL, err := s.upload.Upload(file, "user")
 		if err != nil {
@@ -136,9 +162,8 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 		data["pic"] = picURL
 
 		// Delete old image
-		user, err := s.FindOne(ctx, id)
-		if err == nil && user != nil && user.Pic != nil {
-			parts := strings.Split(*user.Pic, "/")
+		if target.Pic != nil {
+			parts := strings.Split(*target.Pic, "/")
 			fileName := parts[len(parts)-1]
 			if err := s.upload.Delete("user", fileName); err != nil {
 				logger.Warn("Failed to delete old user image", "error", err, "file", fileName)
@@ -179,13 +204,8 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 }
 
 func (s *userService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
-	// Check existence
-	existing, err := s.repo.FindByID(ctx, id)
-	if err != nil {
+	if _, err := s.authorizeChange(ctx, id, caller); err != nil {
 		return nil, err
-	}
-	if existing == nil {
-		return nil, errors.New("user not found")
 	}
 
 	user, err := s.repo.Delete(ctx, id)
@@ -211,6 +231,40 @@ func (s *userService) Remove(ctx context.Context, id string, caller *ports.JwtPa
 
 	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionDelete, id, caller, user)
 	return user, nil
+}
+
+// authorizeChange loads the user about to be updated or removed and checks
+// that caller may act on it: anyone may act on their own record, but acting on
+// somebody else's requires a role ceiling at or above that user's current role.
+// It reads the repository directly so the decision is never made on a stale
+// cached role.
+func (s *userService) authorizeChange(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+	if caller == nil {
+		return nil, errors.New("unauthorized")
+	}
+	target, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if target == nil {
+		return nil, errors.New("user not found")
+	}
+	if caller.ID != id && !caller.CanAssign(target.Role) {
+		return nil, errors.New("you do not have permission to modify this user")
+	}
+	return target, nil
+}
+
+// toRole reads a role out of a partial-update map, where it may arrive as a
+// plain string (from the DTO) or already as a domain.Role.
+func toRole(v any) domain.Role {
+	switch r := v.(type) {
+	case domain.Role:
+		return r
+	case string:
+		return domain.Role(r)
+	}
+	return ""
 }
 
 func buildUserConditions(caller *ports.JwtPayload) (map[string]any, []map[string]any, string) {

@@ -8,13 +8,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/efangly/smtrack-authentication/config"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// bcryptCost is the work factor used for every password hash in this service.
+const bcryptCost = 10
+
+// dummyHash is compared against when no user matches, so that login takes the
+// same time whether or not the username exists.
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password"), bcryptCost)
 
 type authService struct {
 	userService ports.UserService
@@ -55,13 +62,8 @@ func (s *authService) Register(ctx context.Context, data *domain.User, file *mul
 		data.Pic = &picURL
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(data.Password), 10)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
-	}
-	data.Password = string(hashedPassword)
-
-	return s.userService.Create(ctx, data)
+	// userService.Create hashes the password before it reaches the database.
+	return s.userService.Create(ctx, data, nil)
 }
 
 func (s *authService) ValidateUser(ctx context.Context, username string, password string) (*domain.User, error) {
@@ -70,6 +72,9 @@ func (s *authService) ValidateUser(ctx context.Context, username string, passwor
 		return nil, err
 	}
 	if user == nil {
+		// Hash anyway so an unknown username costs the same as a wrong
+		// password — otherwise response time reveals which accounts exist.
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return nil, nil
 	}
 
@@ -139,7 +144,7 @@ func (s *authService) Login(ctx context.Context, user *domain.User) (*ports.Logi
 	}, nil
 }
 
-func (s *authService) RefreshTokens(tokenStr string) (*ports.RefreshResult, error) {
+func (s *authService) RefreshTokens(ctx context.Context, tokenStr string) (*ports.RefreshResult, error) {
 	if s.cfg.JWTSecret == "" || s.cfg.JWTRefreshSecret == "" {
 		return nil, errors.New("authentication configuration error")
 	}
@@ -159,36 +164,53 @@ func (s *authService) RefreshTokens(tokenStr string) (*ports.RefreshResult, erro
 		return nil, errors.New("invalid token claims")
 	}
 
-	newPayload := jwt.MapClaims{
-		"id":     claims["id"],
-		"name":   claims["name"],
-		"role":   claims["role"],
-		"hosId":  claims["hosId"],
-		"wardId": claims["wardId"],
-		"exp":    time.Now().Add(parseDuration(s.cfg.ExpireTime, time.Hour)).Unix(),
-		"iat":    time.Now().Unix(),
+	userID, _ := claims["id"].(string)
+	if userID == "" {
+		return nil, errors.New("invalid token claims")
 	}
 
-	newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, newPayload)
+	// Rebuild the claims from the current record rather than copying the old
+	// ones: a user who was demoted or deleted must not keep their old rights
+	// for the remaining lifetime of the refresh token.
+	user, err := s.userService.FindOne(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil || !user.Status {
+		return nil, errors.New("user is no longer active")
+	}
+
+	var hosID string
+	if user.Ward != nil {
+		hosID = user.Ward.HosID
+	}
+	displayName := ""
+	if user.Display != nil {
+		displayName = *user.Display
+	}
+
+	base := func(ttl time.Duration) jwt.MapClaims {
+		return jwt.MapClaims{
+			"id":     user.ID,
+			"name":   displayName,
+			"role":   string(user.Role),
+			"hosId":  hosID,
+			"wardId": user.WardID,
+			"exp":    time.Now().Add(ttl).Unix(),
+			"iat":    time.Now().Unix(),
+		}
+	}
+
+	newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, base(parseDuration(s.cfg.ExpireTime, time.Hour)))
 	newTokenStr, err := newToken.SignedString([]byte(s.cfg.JWTSecret))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to sign token: %w", err)
 	}
 
-	refreshPayload := jwt.MapClaims{
-		"id":     claims["id"],
-		"name":   claims["name"],
-		"role":   claims["role"],
-		"hosId":  claims["hosId"],
-		"wardId": claims["wardId"],
-		"exp":    time.Now().Add(parseDuration(s.cfg.RefreshExpireTime, 7*24*time.Hour)).Unix(),
-		"iat":    time.Now().Unix(),
-	}
-
-	newRefreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshPayload)
+	newRefreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, base(parseDuration(s.cfg.RefreshExpireTime, 7*24*time.Hour)))
 	newRefreshTokenStr, err := newRefreshToken.SignedString([]byte(s.cfg.JWTRefreshSecret))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to sign refresh token: %w", err)
 	}
 
 	return &ports.RefreshResult{
@@ -206,7 +228,13 @@ func (s *authService) ResetPassword(ctx context.Context, username string, passwo
 		return "", errors.New("user not found")
 	}
 
-	if caller.Role != "SUPER" {
+	// Only an admin-tier caller may target somebody else's account.
+	if !caller.IsAdminTier() && caller.ID != user.ID {
+		return "", errors.New("you can only reset your own password")
+	}
+
+	// Everyone but SUPER must prove the current password.
+	if caller.Role != string(domain.RoleSuper) {
 		if oldPassword == "" {
 			return "", errors.New("old password is required")
 		}
@@ -215,14 +243,10 @@ func (s *authService) ResetPassword(ctx context.Context, username string, passwo
 		}
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
-	if err != nil {
-		return "", fmt.Errorf("failed to hash password: %w", err)
-	}
-
+	// userService.Update hashes the password before it reaches the database.
 	_, err = s.userService.Update(ctx, user.ID, map[string]any{
-		"password": string(hashedPassword),
-	}, nil)
+		"password": password,
+	}, nil, caller)
 	if err != nil {
 		return "", err
 	}
@@ -239,10 +263,11 @@ func parseDuration(s string, defaultDuration time.Duration) time.Duration {
 	}
 	if strings.HasSuffix(s, "d") {
 		var days int
-		fmt.Sscanf(s, "%dd", &days)
-		if days > 0 {
-			return time.Duration(days) * 24 * time.Hour
+		// time.ParseDuration has no day unit, so "7d" is handled here.
+		if n, err := fmt.Sscanf(s, "%dd", &days); err != nil || n != 1 || days <= 0 {
+			return defaultDuration
 		}
+		return time.Duration(days) * 24 * time.Hour
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {

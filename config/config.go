@@ -3,8 +3,8 @@ package config
 import (
 	"os"
 
-	"github.com/joho/godotenv"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -19,13 +19,16 @@ type Config struct {
 	RedisPassword     string
 	RabbitMQURL       string
 	NodeEnv           string
+	LogLevel          string
+}
+
+// LoadDotEnv reads the .env file into the process environment. It must run
+// before the logger is initialised so that LOG_LEVEL from .env takes effect.
+func LoadDotEnv() {
+	_ = godotenv.Load()
 }
 
 func Load() *Config {
-	if err := godotenv.Load(); err != nil {
-		logger.Info("No .env file found, using environment variables")
-	}
-
 	cfg := &Config{
 		DatabaseURL:       getEnv("DATABASE_URL", ""),
 		Port:              getEnv("PORT", "8080"),
@@ -38,6 +41,7 @@ func Load() *Config {
 		RedisPassword:     getEnv("REDIS_PASSWORD", ""),
 		RabbitMQURL:       getEnv("RABBITMQ", ""),
 		NodeEnv:           getEnv("NODE_ENV", "production"),
+		LogLevel:          getEnv("LOG_LEVEL", "warn"),
 	}
 
 	if cfg.DatabaseURL == "" {

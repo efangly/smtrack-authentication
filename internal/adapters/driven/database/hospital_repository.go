@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
@@ -20,7 +21,7 @@ func NewHospitalRepository(db *gorm.DB) ports.HospitalRepository {
 
 func (r *hospitalRepository) Create(ctx context.Context, hospital *domain.Hospital) (*domain.Hospital, error) {
 	if err := r.db.WithContext(ctx).Create(hospital).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return hospital, nil
 }
@@ -49,7 +50,7 @@ func (r *hospitalRepository) FindAll(ctx context.Context, conditions map[string]
 	}
 
 	if err := query.Find(&hospitals).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return hospitals, nil
 }
@@ -66,7 +67,7 @@ func (r *hospitalRepository) FindByID(ctx context.Context, id string) (*domain.H
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return &hospital, nil
 }
@@ -74,7 +75,7 @@ func (r *hospitalRepository) FindByID(ctx context.Context, id string) (*domain.H
 func (r *hospitalRepository) Update(ctx context.Context, id string, data map[string]any) (*domain.Hospital, error) {
 	var hospital domain.Hospital
 	if err := r.db.WithContext(ctx).Model(&hospital).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(data).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return r.FindByID(ctx, id)
 }
@@ -82,10 +83,10 @@ func (r *hospitalRepository) Update(ctx context.Context, id string, data map[str
 func (r *hospitalRepository) Delete(ctx context.Context, id string) (*domain.Hospital, error) {
 	var hospital domain.Hospital
 	if err := r.db.WithContext(ctx).Where("\"id\" = ?", id).First(&hospital).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	if err := r.db.WithContext(ctx).Where("\"id\" = ?", id).Delete(&domain.Hospital{}).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return &hospital, nil
 }

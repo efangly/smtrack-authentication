@@ -89,10 +89,10 @@ func (m *mockHospitalRepo) Delete(ctx context.Context, id string) (*domain.Hospi
 
 // --- Mock CachePort ---
 type mockCache struct {
-	store  map[string]string
-	SetFn  func(ctx context.Context, key string, value string, expireSeconds int) error
-	GetFn  func(ctx context.Context, key string) (string, error)
-	DelFn  func(ctx context.Context, pattern string) error
+	store map[string]string
+	SetFn func(ctx context.Context, key string, value string, expireSeconds int) error
+	GetFn func(ctx context.Context, key string) (string, error)
+	DelFn func(ctx context.Context, pattern string) error
 }
 
 func newMockCache() *mockCache {
@@ -166,16 +166,16 @@ func (m *mockUpload) Delete(path string, filename string) error {
 
 // --- Mock UserService (for auth_service tests) ---
 type mockUserService struct {
-	CreateFn         func(ctx context.Context, user *domain.User) (*domain.User, error)
+	CreateFn         func(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error)
 	FindAllFn        func(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error)
 	FindOneFn        func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
-	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.User, error)
-	RemoveFn         func(ctx context.Context, id string) (*domain.User, error)
+	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error)
+	RemoveFn         func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error)
 }
 
-func (m *mockUserService) Create(ctx context.Context, user *domain.User) (*domain.User, error) {
-	return m.CreateFn(ctx, user)
+func (m *mockUserService) Create(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.CreateFn(ctx, user, caller)
 }
 func (m *mockUserService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error) {
 	return m.FindAllFn(ctx, caller)
@@ -186,9 +186,44 @@ func (m *mockUserService) FindOne(ctx context.Context, id string) (*domain.User,
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
-func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.User, error) {
-	return m.UpdateFn(ctx, id, data, file)
+func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.UpdateFn(ctx, id, data, file, caller)
 }
-func (m *mockUserService) Remove(ctx context.Context, id string) (*domain.User, error) {
-	return m.RemoveFn(ctx, id)
+func (m *mockUserService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.RemoveFn(ctx, id, caller)
+}
+
+// --- Mock AuditRepository ---
+type mockAuditRepo struct {
+	CreateFn  func(ctx context.Context, log *domain.AuditLog) (*domain.AuditLog, error)
+	FindAllFn func(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error)
+}
+
+func (m *mockAuditRepo) Create(ctx context.Context, log *domain.AuditLog) (*domain.AuditLog, error) {
+	return m.CreateFn(ctx, log)
+}
+func (m *mockAuditRepo) FindAll(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
+	return m.FindAllFn(ctx, filter)
+}
+
+// --- Mock AuditService ---
+type mockAuditService struct {
+	RecordFn  func(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *ports.JwtPayload, changes any)
+	FindAllFn func(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error)
+}
+
+func newMockAuditService() *mockAuditService {
+	return &mockAuditService{
+		RecordFn: func(context.Context, domain.AuditEntity, domain.AuditAction, string, *ports.JwtPayload, any) {},
+		FindAllFn: func(context.Context, ports.AuditFilter) ([]domain.AuditLog, error) {
+			return nil, nil
+		},
+	}
+}
+
+func (m *mockAuditService) Record(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *ports.JwtPayload, changes any) {
+	m.RecordFn(ctx, entity, action, entityID, caller, changes)
+}
+func (m *mockAuditService) FindAll(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
+	return m.FindAllFn(ctx, filter)
 }

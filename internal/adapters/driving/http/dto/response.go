@@ -2,16 +2,16 @@ package dto
 
 // StandardResponse is the standard API response envelope
 type StandardResponse struct {
-	Message string      `json:"message"`
-	Success bool        `json:"success"`
-	Data    any `json:"data,omitempty"`
+	Message string `json:"message"`
+	Success bool   `json:"success"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // ErrorResponse is the error API response envelope
 type ErrorResponse struct {
-	Message string      `json:"message"`
-	Success bool        `json:"success"`
-	Data    any `json:"data,omitempty"`
+	Message string `json:"message"`
+	Success bool   `json:"success"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // SuccessResponse creates a success response struct

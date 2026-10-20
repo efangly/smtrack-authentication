@@ -4,11 +4,14 @@ import (
 	"context"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/efangly/smtrack-authentication/config"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	"github.com/redis/go-redis/v9"
 )
+
+// scanBatchSize is the COUNT hint given to each SCAN round.
+const scanBatchSize = 200
 
 type redisAdapter struct {
 	client *redis.Client
@@ -25,7 +28,6 @@ func NewRedisAdapter(cfg *config.Config) ports.CachePort {
 	if err := client.Ping(ctx).Err(); err != nil {
 		logger.Warn("Redis connection error", "error", err)
 	} else {
-		client.FlushAll(ctx)
 		logger.Info("Redis connected successfully")
 	}
 
@@ -44,13 +46,28 @@ func (r *redisAdapter) Get(ctx context.Context, key string) (string, error) {
 	return val, err
 }
 
+// Del removes every key starting with pattern. It uses SCAN rather than KEYS
+// so a large keyspace does not block the Redis server.
 func (r *redisAdapter) Del(ctx context.Context, pattern string) error {
-	keys, err := r.client.Keys(ctx, pattern+"*").Result()
-	if err != nil {
-		return err
+	var cursor uint64
+	for {
+		keys, next, err := r.client.Scan(ctx, cursor, pattern+"*", scanBatchSize).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := r.client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+		if next == 0 {
+			return nil
+		}
+		cursor = next
 	}
-	if len(keys) > 0 {
-		return r.client.Del(ctx, keys...).Err()
-	}
-	return nil
+}
+
+// Close releases the connection pool.
+func (r *redisAdapter) Close() error {
+	return r.client.Close()
 }

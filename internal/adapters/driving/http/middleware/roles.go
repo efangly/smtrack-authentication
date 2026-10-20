@@ -1,10 +1,10 @@
 package middleware
 
 import (
-	"github.com/gofiber/fiber/v3"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/gofiber/fiber/v3"
 )
 
 // RolesGuard creates a role-based authorization middleware

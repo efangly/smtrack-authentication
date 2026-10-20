@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
@@ -20,7 +21,7 @@ func NewWardRepository(db *gorm.DB) ports.WardRepository {
 
 func (r *wardRepository) Create(ctx context.Context, ward *domain.Ward) (*domain.Ward, error) {
 	if err := r.db.WithContext(ctx).Create(ward).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	// Reload with hospital relation
 	return r.FindByID(ctx, ward.ID)
@@ -45,7 +46,7 @@ func (r *wardRepository) FindAll(ctx context.Context, conditions map[string]any,
 	}
 
 	if err := query.Find(&wards).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return wards, nil
 }
@@ -60,7 +61,7 @@ func (r *wardRepository) FindByID(ctx context.Context, id string) (*domain.Ward,
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return &ward, nil
 }
@@ -68,14 +69,14 @@ func (r *wardRepository) FindByID(ctx context.Context, id string) (*domain.Ward,
 func (r *wardRepository) Update(ctx context.Context, id string, data map[string]any) (*domain.Ward, error) {
 	var ward domain.Ward
 	if err := r.db.WithContext(ctx).Model(&ward).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(data).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return r.FindByID(ctx, id)
 }
 
 func (r *wardRepository) Delete(ctx context.Context, id string) error {
 	if err := r.db.WithContext(ctx).Where("\"id\" = ?", id).Delete(&domain.Ward{}).Error; err != nil {
-		return err
+		return fmt.Errorf("database error: %w", err)
 	}
 	return nil
 }

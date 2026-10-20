@@ -1,11 +1,12 @@
 package middleware
 
 import (
+	"errors"
 	"log/slog"
 	"time"
 
-	"github.com/gofiber/fiber/v3"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	"github.com/gofiber/fiber/v3"
 )
 
 // RequestLogger returns a Fiber middleware that logs each request as structured JSON
@@ -18,7 +19,17 @@ func RequestLogger() fiber.Handler {
 		err := c.Next()
 
 		latency := time.Since(start)
+
+		// The error handler has not written the response yet at this point, so
+		// take the status from the error itself when there is one.
 		status := c.Response().StatusCode()
+		if err != nil {
+			status = fiber.StatusInternalServerError
+			var fiberErr *fiber.Error
+			if errors.As(err, &fiberErr) {
+				status = fiberErr.Code
+			}
+		}
 
 		attrs := []any{
 			slog.String("method", c.Method()),

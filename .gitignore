@@ -3,4 +3,6 @@
 *.log
 tmp/
 dist/
+test/e2e/.bin-auth-service
 .DS_Store
+!.env.example

@@ -9,14 +9,15 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/gofiber/fiber/v3"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/gofiber/fiber/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ── Mock services ──────────────────────────────────────────────────
@@ -25,7 +26,7 @@ type mockAuthService struct {
 	RegisterFn      func(ctx context.Context, data *domain.User, file *multipart.FileHeader) (*domain.User, error)
 	ValidateUserFn  func(ctx context.Context, username string, password string) (*domain.User, error)
 	LoginFn         func(ctx context.Context, user *domain.User) (*ports.LoginResult, error)
-	RefreshTokensFn func(token string) (*ports.RefreshResult, error)
+	RefreshTokensFn func(ctx context.Context, token string) (*ports.RefreshResult, error)
 	ResetPasswordFn func(ctx context.Context, username string, password string, oldPassword string, caller *ports.JwtPayload) (string, error)
 }
 
@@ -38,24 +39,24 @@ func (m *mockAuthService) ValidateUser(ctx context.Context, username string, pas
 func (m *mockAuthService) Login(ctx context.Context, user *domain.User) (*ports.LoginResult, error) {
 	return m.LoginFn(ctx, user)
 }
-func (m *mockAuthService) RefreshTokens(token string) (*ports.RefreshResult, error) {
-	return m.RefreshTokensFn(token)
+func (m *mockAuthService) RefreshTokens(ctx context.Context, token string) (*ports.RefreshResult, error) {
+	return m.RefreshTokensFn(ctx, token)
 }
 func (m *mockAuthService) ResetPassword(ctx context.Context, username string, password string, oldPassword string, caller *ports.JwtPayload) (string, error) {
 	return m.ResetPasswordFn(ctx, username, password, oldPassword, caller)
 }
 
 type mockUserService struct {
-	CreateFn         func(ctx context.Context, user *domain.User) (*domain.User, error)
+	CreateFn         func(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error)
 	FindAllFn        func(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error)
 	FindOneFn        func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
-	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.User, error)
-	RemoveFn         func(ctx context.Context, id string) (*domain.User, error)
+	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error)
+	RemoveFn         func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error)
 }
 
-func (m *mockUserService) Create(ctx context.Context, user *domain.User) (*domain.User, error) {
-	return m.CreateFn(ctx, user)
+func (m *mockUserService) Create(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.CreateFn(ctx, user, caller)
 }
 func (m *mockUserService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error) {
 	return m.FindAllFn(ctx, caller)
@@ -66,23 +67,23 @@ func (m *mockUserService) FindOne(ctx context.Context, id string) (*domain.User,
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
-func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.User, error) {
-	return m.UpdateFn(ctx, id, data, file)
+func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.UpdateFn(ctx, id, data, file, caller)
 }
-func (m *mockUserService) Remove(ctx context.Context, id string) (*domain.User, error) {
-	return m.RemoveFn(ctx, id)
+func (m *mockUserService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+	return m.RemoveFn(ctx, id, caller)
 }
 
 type mockHospitalService struct {
-	CreateFn  func(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader) (*domain.Hospital, error)
+	CreateFn  func(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error)
 	FindAllFn func(ctx context.Context, caller *ports.JwtPayload) ([]domain.Hospital, error)
 	FindOneFn func(ctx context.Context, id string) (*domain.Hospital, error)
-	UpdateFn  func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.Hospital, error)
-	RemoveFn  func(ctx context.Context, id string) (*domain.Hospital, error)
+	UpdateFn  func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error)
+	RemoveFn  func(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error)
 }
 
-func (m *mockHospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader) (*domain.Hospital, error) {
-	return m.CreateFn(ctx, hospital, file)
+func (m *mockHospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error) {
+	return m.CreateFn(ctx, hospital, file, caller)
 }
 func (m *mockHospitalService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Hospital, error) {
 	return m.FindAllFn(ctx, caller)
@@ -90,23 +91,23 @@ func (m *mockHospitalService) FindAll(ctx context.Context, caller *ports.JwtPayl
 func (m *mockHospitalService) FindOne(ctx context.Context, id string) (*domain.Hospital, error) {
 	return m.FindOneFn(ctx, id)
 }
-func (m *mockHospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.Hospital, error) {
-	return m.UpdateFn(ctx, id, data, file)
+func (m *mockHospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error) {
+	return m.UpdateFn(ctx, id, data, file, caller)
 }
-func (m *mockHospitalService) Remove(ctx context.Context, id string) (*domain.Hospital, error) {
-	return m.RemoveFn(ctx, id)
+func (m *mockHospitalService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error) {
+	return m.RemoveFn(ctx, id, caller)
 }
 
 type mockWardService struct {
-	CreateFn  func(ctx context.Context, ward *domain.Ward) (*domain.Ward, error)
+	CreateFn  func(ctx context.Context, ward *domain.Ward, caller *ports.JwtPayload) (*domain.Ward, error)
 	FindAllFn func(ctx context.Context, caller *ports.JwtPayload) ([]domain.Ward, error)
 	FindOneFn func(ctx context.Context, id string) (*domain.Ward, error)
-	UpdateFn  func(ctx context.Context, id string, data map[string]any) (*domain.Ward, error)
-	RemoveFn  func(ctx context.Context, id string) (string, error)
+	UpdateFn  func(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error)
+	RemoveFn  func(ctx context.Context, id string, caller *ports.JwtPayload) (string, error)
 }
 
-func (m *mockWardService) Create(ctx context.Context, ward *domain.Ward) (*domain.Ward, error) {
-	return m.CreateFn(ctx, ward)
+func (m *mockWardService) Create(ctx context.Context, ward *domain.Ward, caller *ports.JwtPayload) (*domain.Ward, error) {
+	return m.CreateFn(ctx, ward, caller)
 }
 func (m *mockWardService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Ward, error) {
 	return m.FindAllFn(ctx, caller)
@@ -114,11 +115,25 @@ func (m *mockWardService) FindAll(ctx context.Context, caller *ports.JwtPayload)
 func (m *mockWardService) FindOne(ctx context.Context, id string) (*domain.Ward, error) {
 	return m.FindOneFn(ctx, id)
 }
-func (m *mockWardService) Update(ctx context.Context, id string, data map[string]any) (*domain.Ward, error) {
-	return m.UpdateFn(ctx, id, data)
+func (m *mockWardService) Update(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error) {
+	return m.UpdateFn(ctx, id, data, caller)
 }
-func (m *mockWardService) Remove(ctx context.Context, id string) (string, error) {
-	return m.RemoveFn(ctx, id)
+func (m *mockWardService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (string, error) {
+	return m.RemoveFn(ctx, id, caller)
+}
+
+type mockAuditService struct {
+	RecordFn  func(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *ports.JwtPayload, changes any)
+	FindAllFn func(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error)
+}
+
+func (m *mockAuditService) Record(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *ports.JwtPayload, changes any) {
+	if m.RecordFn != nil {
+		m.RecordFn(ctx, entity, action, entityID, caller, changes)
+	}
+}
+func (m *mockAuditService) FindAll(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
+	return m.FindAllFn(ctx, filter)
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -240,7 +255,7 @@ func TestAuthHandler_Login_WrongCredentials(t *testing.T) {
 
 func TestAuthHandler_RefreshToken_Success(t *testing.T) {
 	svc := &mockAuthService{
-		RefreshTokensFn: func(token string) (*ports.RefreshResult, error) {
+		RefreshTokensFn: func(_ context.Context, token string) (*ports.RefreshResult, error) {
 			return &ports.RefreshResult{Token: "new-tok", RefreshToken: "new-ref"}, nil
 		},
 	}
@@ -274,7 +289,7 @@ func TestAuthHandler_RefreshToken_MissingToken(t *testing.T) {
 
 func TestAuthHandler_RefreshToken_Invalid(t *testing.T) {
 	svc := &mockAuthService{
-		RefreshTokensFn: func(_ string) (*ports.RefreshResult, error) {
+		RefreshTokensFn: func(_ context.Context, _ string) (*ports.RefreshResult, error) {
 			return nil, errors.New("invalid token")
 		},
 	}
@@ -333,14 +348,14 @@ func TestAuthHandler_ResetPassword_Error(t *testing.T) {
 
 func TestUserHandler_Create_Success(t *testing.T) {
 	svc := &mockUserService{
-		CreateFn: func(_ context.Context, u *domain.User) (*domain.User, error) {
+		CreateFn: func(_ context.Context, u *domain.User, _ *ports.JwtPayload) (*domain.User, error) {
 			u.ID = "U-NEW"
 			return u, nil
 		},
 	}
 	app := fiber.New()
 	h := NewUserHandler(svc)
-	app.Post("/users", h.Create)
+	app.Post("/users", injectCaller(&ports.JwtPayload{ID: "U1", Role: "SUPER"}), h.Create)
 
 	req := httptest.NewRequest(http.MethodPost, "/users",
 		jsonBody(t, map[string]string{"username": "alice", "password": "pass123"}))
@@ -353,13 +368,13 @@ func TestUserHandler_Create_Success(t *testing.T) {
 
 func TestUserHandler_Create_Error(t *testing.T) {
 	svc := &mockUserService{
-		CreateFn: func(_ context.Context, _ *domain.User) (*domain.User, error) {
+		CreateFn: func(_ context.Context, _ *domain.User, _ *ports.JwtPayload) (*domain.User, error) {
 			return nil, errors.New("duplicate username")
 		},
 	}
 	app := fiber.New()
 	h := NewUserHandler(svc)
-	app.Post("/users", h.Create)
+	app.Post("/users", injectCaller(&ports.JwtPayload{ID: "U1", Role: "SUPER"}), h.Create)
 
 	req := httptest.NewRequest(http.MethodPost, "/users",
 		jsonBody(t, map[string]string{"username": "alice", "password": "pass123"}))
@@ -406,7 +421,7 @@ func TestUserHandler_FindOne_Success(t *testing.T) {
 	}
 	app := fiber.New()
 	h := NewUserHandler(svc)
-	app.Get("/users/:id", h.FindOne)
+	app.Get("/users/:id", injectCaller(&ports.JwtPayload{ID: "U1", Role: "GUEST"}), h.FindOne)
 
 	req := httptest.NewRequest(http.MethodGet, "/users/U1", nil)
 	resp, err := app.Test(req)
@@ -422,7 +437,7 @@ func TestUserHandler_FindOne_NotFound(t *testing.T) {
 	}
 	app := fiber.New()
 	h := NewUserHandler(svc)
-	app.Get("/users/:id", h.FindOne)
+	app.Get("/users/:id", injectCaller(&ports.JwtPayload{ID: "S1", Role: "SUPER"}), h.FindOne)
 
 	req := httptest.NewRequest(http.MethodGet, "/users/NOPE", nil)
 	resp, err := app.Test(req)
@@ -432,7 +447,7 @@ func TestUserHandler_FindOne_NotFound(t *testing.T) {
 
 func TestUserHandler_Remove_Success(t *testing.T) {
 	svc := &mockUserService{
-		RemoveFn: func(_ context.Context, id string) (*domain.User, error) {
+		RemoveFn: func(_ context.Context, id string, _ *ports.JwtPayload) (*domain.User, error) {
 			return &domain.User{ID: id}, nil
 		},
 	}
@@ -510,7 +525,7 @@ func TestHospitalHandler_FindOne_NotFound(t *testing.T) {
 
 func TestHospitalHandler_Remove_Success(t *testing.T) {
 	svc := &mockHospitalService{
-		RemoveFn: func(_ context.Context, id string) (*domain.Hospital, error) {
+		RemoveFn: func(_ context.Context, id string, _ *ports.JwtPayload) (*domain.Hospital, error) {
 			return &domain.Hospital{ID: id}, nil
 		},
 	}
@@ -526,7 +541,7 @@ func TestHospitalHandler_Remove_Success(t *testing.T) {
 
 func TestHospitalHandler_Remove_Error(t *testing.T) {
 	svc := &mockHospitalService{
-		RemoveFn: func(_ context.Context, _ string) (*domain.Hospital, error) {
+		RemoveFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.Hospital, error) {
 			return nil, errors.New("remove failed")
 		},
 	}
@@ -544,7 +559,7 @@ func TestHospitalHandler_Remove_Error(t *testing.T) {
 
 func TestWardHandler_Create_Success(t *testing.T) {
 	svc := &mockWardService{
-		CreateFn: func(_ context.Context, w *domain.Ward) (*domain.Ward, error) {
+		CreateFn: func(_ context.Context, w *domain.Ward, _ *ports.JwtPayload) (*domain.Ward, error) {
 			w.ID = "W-NEW"
 			return w, nil
 		},
@@ -564,7 +579,7 @@ func TestWardHandler_Create_Success(t *testing.T) {
 
 func TestWardHandler_Create_Error(t *testing.T) {
 	svc := &mockWardService{
-		CreateFn: func(_ context.Context, _ *domain.Ward) (*domain.Ward, error) {
+		CreateFn: func(_ context.Context, _ *domain.Ward, _ *ports.JwtPayload) (*domain.Ward, error) {
 			return nil, errors.New("duplicate ward")
 		},
 	}
@@ -643,7 +658,7 @@ func TestWardHandler_FindOne_NotFound(t *testing.T) {
 
 func TestWardHandler_Remove_Success(t *testing.T) {
 	svc := &mockWardService{
-		RemoveFn: func(_ context.Context, id string) (string, error) {
+		RemoveFn: func(_ context.Context, id string, _ *ports.JwtPayload) (string, error) {
 			return "deleted " + id, nil
 		},
 	}
@@ -659,7 +674,7 @@ func TestWardHandler_Remove_Success(t *testing.T) {
 
 func TestWardHandler_Remove_Error(t *testing.T) {
 	svc := &mockWardService{
-		RemoveFn: func(_ context.Context, _ string) (string, error) {
+		RemoveFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (string, error) {
 			return "", errors.New("cannot delete")
 		},
 	}
@@ -717,4 +732,121 @@ func TestGetCaller_WrongType(t *testing.T) {
 	_, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Nil(t, result)
+}
+
+// --- Authorization on user routes ---
+
+func TestUserHandler_FindOne_ForbiddenForOtherUser(t *testing.T) {
+	svc := &mockUserService{
+		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+			return &domain.User{ID: id}, nil
+		},
+	}
+	app := fiber.New()
+	h := NewUserHandler(svc)
+	app.Get("/users/:id", injectCaller(&ports.JwtPayload{ID: "GUEST1", Role: "GUEST"}), h.FindOne)
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/users/SOMEONE_ELSE", nil))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestUserHandler_Update_ForbiddenForOtherUser(t *testing.T) {
+	called := false
+	svc := &mockUserService{
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
+			called = true
+			return &domain.User{}, nil
+		},
+	}
+	app := fiber.New()
+	h := NewUserHandler(svc)
+	app.Put("/users/:id", injectCaller(&ports.JwtPayload{ID: "GUEST1", Role: "GUEST"}), h.Update)
+
+	req := httptest.NewRequest(http.MethodPut, "/users/VICTIM", strings.NewReader(`{"display":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.False(t, called, "service must not be reached")
+}
+
+func TestUserHandler_Update_NonAdminCannotEscalateRole(t *testing.T) {
+	var received map[string]any
+	svc := &mockUserService{
+		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
+			received = data
+			return &domain.User{ID: "U1"}, nil
+		},
+	}
+	app := fiber.New()
+	h := NewUserHandler(svc)
+	app.Put("/users/:id", injectCaller(&ports.JwtPayload{ID: "U1", Role: "GUEST"}), h.Update)
+
+	body := `{"role":"SUPER","status":true,"wardId":"W9","display":"New Name"}`
+	req := httptest.NewRequest(http.MethodPut, "/users/U1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.NotContains(t, received, "role")
+	assert.NotContains(t, received, "status")
+	assert.NotContains(t, received, "wardId")
+	assert.Equal(t, "New Name", received["display"], "non-privileged fields still apply")
+}
+
+func TestUserHandler_Update_AdminKeepsPrivilegedFields(t *testing.T) {
+	var received map[string]any
+	svc := &mockUserService{
+		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
+			received = data
+			return &domain.User{ID: "U2"}, nil
+		},
+	}
+	app := fiber.New()
+	h := NewUserHandler(svc)
+	app.Put("/users/:id", injectCaller(&ports.JwtPayload{ID: "A1", Role: "ADMIN"}), h.Update)
+
+	req := httptest.NewRequest(http.MethodPut, "/users/U2", strings.NewReader(`{"role":"USER"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "USER", received["role"])
+}
+
+// ── Audit Handler Tests ────────────────────────────────────────────
+
+func TestAuditHandler_FindAll_Success(t *testing.T) {
+	svc := &mockAuditService{
+		FindAllFn: func(_ context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
+			assert.Equal(t, "USER", filter.Entity)
+			return []domain.AuditLog{{ID: "A1", Entity: domain.AuditEntityUser}}, nil
+		},
+	}
+	app := fiber.New()
+	h := NewAuditHandler(svc)
+	app.Get("/audit", injectCaller(&ports.JwtPayload{ID: "U1", Role: "SUPER"}), h.FindAll)
+
+	req := httptest.NewRequest(http.MethodGet, "/audit?entity=USER", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestAuditHandler_FindAll_ServiceError(t *testing.T) {
+	svc := &mockAuditService{
+		FindAllFn: func(_ context.Context, _ ports.AuditFilter) ([]domain.AuditLog, error) {
+			return nil, errors.New("query failed")
+		},
+	}
+	app := fiber.New()
+	h := NewAuditHandler(svc)
+	app.Get("/audit", h.FindAll)
+
+	req := httptest.NewRequest(http.MethodGet, "/audit", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

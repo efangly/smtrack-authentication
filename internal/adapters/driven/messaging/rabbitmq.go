@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/efangly/smtrack-authentication/config"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type rabbitmqAdapter struct {
@@ -30,16 +30,15 @@ func NewRabbitMQAdapter(cfg *config.Config) ports.MessagingPort {
 
 	deviceCh, _ := conn.Channel()
 	legacyCh, _ := conn.Channel()
-	authCh, _ := conn.Channel()
 
 	if deviceCh != nil {
 		deviceCh.QueueDeclare("log_device_queue", true, false, false, false, nil)
+		// auth_queue is declared here (rather than on its own channel) so the
+		// channel is not left open and unreferenced.
+		deviceCh.QueueDeclare("auth_queue", true, false, false, false, nil)
 	}
 	if legacyCh != nil {
 		legacyCh.QueueDeclare("templog_queue", true, false, false, false, nil)
-	}
-	if authCh != nil {
-		authCh.QueueDeclare("auth_queue", true, false, false, false, nil)
 	}
 
 	logger.Info("RabbitMQ connected successfully")
@@ -65,6 +64,20 @@ func (r *rabbitmqAdapter) SendToLegacy(queue string, payload any) error {
 		return fmt.Errorf("legacy channel not available")
 	}
 	return r.publish(r.legacyChannel, "templog_queue", queue, payload)
+}
+
+// Close shuts the channels and the connection down.
+func (r *rabbitmqAdapter) Close() error {
+	if r.deviceChannel != nil {
+		r.deviceChannel.Close()
+	}
+	if r.legacyChannel != nil {
+		r.legacyChannel.Close()
+	}
+	if r.conn != nil {
+		return r.conn.Close()
+	}
+	return nil
 }
 
 func (r *rabbitmqAdapter) publish(ch *amqp.Channel, queueName string, pattern string, payload any) error {

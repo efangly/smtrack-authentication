@@ -5,16 +5,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestWardService(repo *mockWardRepo) (ports.WardService, *mockCache, *mockMessaging) {
 	cache := newMockCache()
 	msg := newMockMessaging()
-	svc := NewWardService(repo, cache, msg)
+	svc := NewWardService(repo, cache, msg, newMockAuditService())
 	return svc, cache, msg
 }
 
@@ -28,7 +28,7 @@ func TestWardService_Create_Success(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	w, err := svc.Create(context.Background(), &domain.Ward{WardName: "Ward A", HosID: "H1"})
+	w, err := svc.Create(context.Background(), &domain.Ward{WardName: "Ward A", HosID: "H1"}, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, w.ID)
 	assert.Equal(t, "Ward A", w.WardName)
@@ -43,7 +43,7 @@ func TestWardService_Create_PreservesID(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	w, err := svc.Create(context.Background(), &domain.Ward{ID: "CUSTOM", WardName: "W1", HosID: "H1"})
+	w, err := svc.Create(context.Background(), &domain.Ward{ID: "CUSTOM", WardName: "W1", HosID: "H1"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "CUSTOM", w.ID)
 }
@@ -56,7 +56,7 @@ func TestWardService_Create_RepoError(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	_, err := svc.Create(context.Background(), &domain.Ward{WardName: "W1"})
+	_, err := svc.Create(context.Background(), &domain.Ward{WardName: "W1"}, nil)
 	assert.EqualError(t, err, "db error")
 }
 
@@ -127,7 +127,7 @@ func TestWardService_Update_SendsToDeviceForNewType(t *testing.T) {
 	svc, _, msg := newTestWardService(repo)
 	msg.SendToDeviceFn = func(string, any) error { deviceCalled = true; return nil }
 
-	w, err := svc.Update(context.Background(), "W1", map[string]any{"wardName": "Updated"})
+	w, err := svc.Update(context.Background(), "W1", map[string]any{"wardName": "Updated"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", w.WardName)
 	assert.True(t, deviceCalled)
@@ -144,7 +144,7 @@ func TestWardService_Update_SendsToLegacyForLegacyType(t *testing.T) {
 	svc, _, msg := newTestWardService(repo)
 	msg.SendToLegacyFn = func(string, any) error { legacyCalled = true; return nil }
 
-	_, err := svc.Update(context.Background(), "W1", map[string]any{"wardName": "Legacy"})
+	_, err := svc.Update(context.Background(), "W1", map[string]any{"wardName": "Legacy"}, nil)
 	require.NoError(t, err)
 	assert.True(t, legacyCalled)
 }
@@ -157,7 +157,7 @@ func TestWardService_Update_RepoError(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	_, err := svc.Update(context.Background(), "W1", map[string]any{})
+	_, err := svc.Update(context.Background(), "W1", map[string]any{}, nil)
 	assert.EqualError(t, err, "update failed")
 }
 
@@ -174,7 +174,7 @@ func TestWardService_Remove_Success(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	msg, err := svc.Remove(context.Background(), "W1")
+	msg, err := svc.Remove(context.Background(), "W1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Ward deleted successfully", msg)
 }
@@ -187,7 +187,7 @@ func TestWardService_Remove_NotFound(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	_, err := svc.Remove(context.Background(), "nonexistent")
+	_, err := svc.Remove(context.Background(), "nonexistent", nil)
 	assert.EqualError(t, err, "ward not found")
 }
 
@@ -202,7 +202,7 @@ func TestWardService_Remove_DeleteError(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	_, err := svc.Remove(context.Background(), "W1")
+	_, err := svc.Remove(context.Background(), "W1", nil)
 	assert.EqualError(t, err, "delete failed")
 }
 

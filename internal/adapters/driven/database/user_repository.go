@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
@@ -20,7 +21,7 @@ func NewUserRepository(db *gorm.DB) ports.UserRepository {
 
 func (r *userRepository) Create(ctx context.Context, user *domain.User) (*domain.User, error) {
 	if err := r.db.WithContext(ctx).Create(user).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return user, nil
 }
@@ -49,7 +50,7 @@ func (r *userRepository) FindAll(ctx context.Context, conditions map[string]any,
 	}
 
 	if err := query.Find(&users).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return users, nil
 }
@@ -64,7 +65,7 @@ func (r *userRepository) FindByID(ctx context.Context, id string) (*domain.User,
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return &user, nil
 }
@@ -79,7 +80,7 @@ func (r *userRepository) FindByUsername(ctx context.Context, username string) (*
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return &user, nil
 }
@@ -87,7 +88,7 @@ func (r *userRepository) FindByUsername(ctx context.Context, username string) (*
 func (r *userRepository) Update(ctx context.Context, id string, data map[string]any) (*domain.User, error) {
 	var user domain.User
 	if err := r.db.WithContext(ctx).Model(&user).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(data).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	// Reload with relations
 	return r.FindByID(ctx, id)
@@ -96,10 +97,10 @@ func (r *userRepository) Update(ctx context.Context, id string, data map[string]
 func (r *userRepository) Delete(ctx context.Context, id string) (*domain.User, error) {
 	var user domain.User
 	if err := r.db.WithContext(ctx).Where("\"id\" = ?", id).First(&user).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	if err := r.db.WithContext(ctx).Where("\"id\" = ?", id).Delete(&domain.User{}).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return &user, nil
 }

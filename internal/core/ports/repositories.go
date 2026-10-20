@@ -30,3 +30,18 @@ type HospitalRepository interface {
 	Update(ctx context.Context, id string, data map[string]any) (*domain.Hospital, error)
 	Delete(ctx context.Context, id string) (*domain.Hospital, error)
 }
+
+// AuditFilter narrows an audit log query. Zero-value fields are not applied.
+type AuditFilter struct {
+	Entity   string
+	Action   string
+	EntityID string
+	ActorID  string
+	Limit    int
+	Offset   int
+}
+
+type AuditRepository interface {
+	Create(ctx context.Context, log *domain.AuditLog) (*domain.AuditLog, error)
+	FindAll(ctx context.Context, filter AuditFilter) ([]domain.AuditLog, error)
+}

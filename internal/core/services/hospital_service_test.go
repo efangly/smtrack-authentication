@@ -5,17 +5,17 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestHospitalService(repo *mockHospitalRepo) (ports.HospitalService, *mockCache, *mockUpload, *mockMessaging) {
 	cache := newMockCache()
 	upload := newMockUpload()
 	msg := newMockMessaging()
-	svc := NewHospitalService(repo, cache, upload, msg)
+	svc := NewHospitalService(repo, cache, upload, msg, newMockAuditService())
 	return svc, cache, upload, msg
 }
 
@@ -29,7 +29,7 @@ func TestHospitalService_Create_Success(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	h, err := svc.Create(context.Background(), &domain.Hospital{HosName: "Hospital A"}, nil)
+	h, err := svc.Create(context.Background(), &domain.Hospital{HosName: "Hospital A"}, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, h.ID)
 	assert.Equal(t, "Hospital A", h.HosName)
@@ -44,7 +44,7 @@ func TestHospitalService_Create_WithFile(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	h, err := svc.Create(context.Background(), &domain.Hospital{HosName: "H1"}, nil)
+	h, err := svc.Create(context.Background(), &domain.Hospital{HosName: "H1"}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "H1", h.HosName)
 }
@@ -57,7 +57,7 @@ func TestHospitalService_Create_PreservesID(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	h, err := svc.Create(context.Background(), &domain.Hospital{ID: "CUSTOM", HosName: "H1"}, nil)
+	h, err := svc.Create(context.Background(), &domain.Hospital{ID: "CUSTOM", HosName: "H1"}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "CUSTOM", h.ID)
 }
@@ -70,7 +70,7 @@ func TestHospitalService_Create_RepoError(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	_, err := svc.Create(context.Background(), &domain.Hospital{HosName: "H1"}, nil)
+	_, err := svc.Create(context.Background(), &domain.Hospital{HosName: "H1"}, nil, nil)
 	assert.EqualError(t, err, "db error")
 }
 
@@ -142,7 +142,7 @@ func TestHospitalService_Update_Success(t *testing.T) {
 	msg.SendToDeviceFn = func(string, any) error { deviceCalled = true; return nil }
 	msg.SendToLegacyFn = func(string, any) error { legacyCalled = true; return nil }
 
-	h, err := svc.Update(context.Background(), "H1", map[string]any{"hosName": "Updated"}, nil)
+	h, err := svc.Update(context.Background(), "H1", map[string]any{"hosName": "Updated"}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", h.HosName)
 	assert.True(t, deviceCalled)
@@ -162,7 +162,7 @@ func TestHospitalService_Remove_Success(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	h, err := svc.Remove(context.Background(), "H1")
+	h, err := svc.Remove(context.Background(), "H1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "H1", h.ID)
 }
@@ -175,7 +175,7 @@ func TestHospitalService_Remove_NotFound(t *testing.T) {
 	}
 	svc, _, _, _ := newTestHospitalService(repo)
 
-	_, err := svc.Remove(context.Background(), "nonexistent")
+	_, err := svc.Remove(context.Background(), "nonexistent", nil)
 	assert.EqualError(t, err, "hospital not found")
 }
 
@@ -193,7 +193,7 @@ func TestHospitalService_Remove_WithPic(t *testing.T) {
 	svc, _, upload, _ := newTestHospitalService(repo)
 	upload.DeleteFn = func(string, string) error { deleteCalled = true; return nil }
 
-	_, err := svc.Remove(context.Background(), "H1")
+	_, err := svc.Remove(context.Background(), "H1", nil)
 	require.NoError(t, err)
 	assert.True(t, deleteCalled)
 }

@@ -3,8 +3,8 @@ package dto
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCreateUserRequest_ToUser(t *testing.T) {
@@ -132,4 +132,35 @@ func TestFailResponse(t *testing.T) {
 	assert.False(t, resp.Success)
 	assert.Equal(t, "bad request", resp.Message)
 	assert.Nil(t, resp.Data)
+}
+
+func TestCreateUserRequest_ToPublicUser_ForcesGuestRole(t *testing.T) {
+	status := true
+	createBy := "attacker"
+	req := &CreateUserRequest{
+		ID:       "chosen-id",
+		WardID:   "W1",
+		Username: "attacker",
+		Password: "pass1234",
+		Role:     domain.RoleSuper,
+		Status:   &status,
+		CreateBy: &createBy,
+	}
+
+	user := req.ToPublicUser()
+
+	assert.Equal(t, domain.RoleGuest, user.Role, "role must never come from the body")
+	assert.Empty(t, user.ID, "id must be generated server side")
+	assert.Nil(t, user.CreateBy)
+	assert.True(t, user.Status)
+	assert.Equal(t, "W1", user.WardID)
+}
+
+func TestUpdateUserRequest_ToMap_HasNoPassword(t *testing.T) {
+	username := "bob"
+	req := &UpdateUserRequest{Username: &username}
+	data := req.ToMap()
+
+	assert.NotContains(t, data, "password", "password changes go through /auth/reset")
+	assert.Equal(t, "bob", data["username"])
 }

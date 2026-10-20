@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	"github.com/google/uuid"
 )
 
 type wardService struct {
 	repo      ports.WardRepository
 	cache     ports.CachePort
 	messaging ports.MessagingPort
+	audit     ports.AuditService
 }
 
 // NewWardService creates a new ward service
@@ -24,15 +25,17 @@ func NewWardService(
 	repo ports.WardRepository,
 	cache ports.CachePort,
 	messaging ports.MessagingPort,
+	audit ports.AuditService,
 ) ports.WardService {
 	return &wardService{
 		repo:      repo,
 		cache:     cache,
 		messaging: messaging,
+		audit:     audit,
 	}
 }
 
-func (s *wardService) Create(ctx context.Context, ward *domain.Ward) (*domain.Ward, error) {
+func (s *wardService) Create(ctx context.Context, ward *domain.Ward, caller *ports.JwtPayload) (*domain.Ward, error) {
 	if ward.ID == "" {
 		ward.ID = uuid.New().String()
 	}
@@ -49,7 +52,10 @@ func (s *wardService) Create(ctx context.Context, ward *domain.Ward) (*domain.Wa
 	// Clear relevant caches
 	s.cache.Del(ctx, "hospital")
 	s.cache.Del(ctx, "ward")
+	// User listings embed their ward, so they go stale too.
+	s.cache.Del(ctx, "user")
 
+	s.audit.Record(ctx, domain.AuditEntityWard, domain.AuditActionCreate, result.ID, caller, result)
 	return result, nil
 }
 
@@ -89,7 +95,7 @@ func (s *wardService) FindOne(ctx context.Context, id string) (*domain.Ward, err
 	return ward, nil
 }
 
-func (s *wardService) Update(ctx context.Context, id string, data map[string]any) (*domain.Ward, error) {
+func (s *wardService) Update(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error) {
 	data["updateAt"] = time.Now()
 
 	ward, err := s.repo.Update(ctx, id, data)
@@ -117,11 +123,14 @@ func (s *wardService) Update(ctx context.Context, id string, data map[string]any
 	// Clear caches
 	s.cache.Del(ctx, "hospital")
 	s.cache.Del(ctx, "ward")
+	// User listings embed their ward, so they go stale too.
+	s.cache.Del(ctx, "user")
 
+	s.audit.Record(ctx, domain.AuditEntityWard, domain.AuditActionUpdate, id, caller, data)
 	return ward, nil
 }
 
-func (s *wardService) Remove(ctx context.Context, id string) (string, error) {
+func (s *wardService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (string, error) {
 	existing, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return "", err
@@ -137,7 +146,10 @@ func (s *wardService) Remove(ctx context.Context, id string) (string, error) {
 	// Clear caches
 	s.cache.Del(ctx, "hospital")
 	s.cache.Del(ctx, "ward")
+	// User listings embed their ward, so they go stale too.
+	s.cache.Del(ctx, "user")
 
+	s.audit.Record(ctx, domain.AuditEntityWard, domain.AuditActionDelete, id, caller, existing)
 	return "Ward deleted successfully", nil
 }
 

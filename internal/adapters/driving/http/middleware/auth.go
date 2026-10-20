@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/efangly/smtrack-authentication/internal/core/ports"
 )
 
 func JWTAuth(jwtSecret string) fiber.Handler {

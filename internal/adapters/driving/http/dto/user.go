@@ -40,11 +40,28 @@ func (r *CreateUserRequest) ToUser() *domain.User {
 	return user
 }
 
-// UpdateUserRequest represents the update user request body
+// ToPublicUser converts the DTO to a domain User for the public /auth/register
+// endpoint. Privileged fields (id, role, status, createBy) are never taken from
+// the request body — an unauthenticated caller must not be able to choose them.
+func (r *CreateUserRequest) ToPublicUser() *domain.User {
+	return &domain.User{
+		WardID:   r.WardID,
+		Username: r.Username,
+		Password: r.Password,
+		Role:     domain.RoleGuest,
+		Status:   true,
+		Display:  r.Display,
+		Pic:      r.Pic,
+		Comment:  r.Comment,
+	}
+}
+
+// UpdateUserRequest represents the update user request body.
+// Password is intentionally absent: it would be written to the database
+// unhashed. Use PATCH /auth/reset/:username instead.
 type UpdateUserRequest struct {
 	WardID   *string      `json:"wardId,omitempty"`
 	Username *string      `json:"username,omitempty"`
-	Password *string      `json:"password,omitempty"`
 	Status   *bool        `json:"status,omitempty"`
 	Role     *domain.Role `json:"role,omitempty"`
 	Display  *string      `json:"display,omitempty"`
@@ -60,9 +77,6 @@ func (r *UpdateUserRequest) ToMap() map[string]any {
 	}
 	if r.Username != nil {
 		data["username"] = *r.Username
-	}
-	if r.Password != nil {
-		data["password"] = *r.Password
 	}
 	if r.Status != nil {
 		data["status"] = *r.Status

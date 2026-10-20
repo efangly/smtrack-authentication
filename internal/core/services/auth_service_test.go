@@ -6,12 +6,12 @@ import (
 	"mime/multipart"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/efangly/smtrack-authentication/config"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -31,11 +31,13 @@ func newTestAuthService(userSvc *mockUserService) (ports.AuthService, *mockCache
 // --- Register ---
 
 func TestAuthService_Register_Success(t *testing.T) {
+	var passwordSeenByCreate string
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return nil, nil // no existing user
 		},
-		CreateFn: func(_ context.Context, user *domain.User) (*domain.User, error) {
+		CreateFn: func(_ context.Context, user *domain.User, _ *ports.JwtPayload) (*domain.User, error) {
+			passwordSeenByCreate = user.Password
 			return user, nil
 		},
 	}
@@ -49,9 +51,9 @@ func TestAuthService_Register_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, user)
-	// password should be hashed
-	assert.NotEqual(t, "pass1234", user.Password)
-	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(user.Password), []byte("pass1234")))
+	// Register itself no longer hashes — userService.Create is the single
+	// place that does, so the plain password must reach Create unchanged.
+	assert.Equal(t, "pass1234", passwordSeenByCreate)
 }
 
 func TestAuthService_Register_DuplicateUsername(t *testing.T) {
@@ -75,7 +77,7 @@ func TestAuthService_Register_WithFile(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return nil, nil
 		},
-		CreateFn: func(_ context.Context, user *domain.User) (*domain.User, error) {
+		CreateFn: func(_ context.Context, user *domain.User, _ *ports.JwtPayload) (*domain.User, error) {
 			return user, nil
 		},
 	}
@@ -183,7 +185,18 @@ func TestAuthService_Login_MissingSecret(t *testing.T) {
 // --- RefreshTokens ---
 
 func TestAuthService_RefreshTokens_Success(t *testing.T) {
-	userSvc := &mockUserService{}
+	// The new claims come from the current record, not from the old token.
+	userSvc := &mockUserService{
+		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+			return &domain.User{
+				ID:     id,
+				Role:   domain.RoleAdmin,
+				WardID: "W1",
+				Status: true,
+				Ward:   &domain.Ward{HosID: "H1"},
+			}, nil
+		},
+	}
 	svc, _, _ := newTestAuthService(userSvc)
 
 	// Create a valid refresh token first
@@ -199,7 +212,7 @@ func TestAuthService_RefreshTokens_Success(t *testing.T) {
 	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, _ := refreshToken.SignedString([]byte("test-refresh-secret"))
 
-	result, err := svc.RefreshTokens(tokenStr)
+	result, err := svc.RefreshTokens(context.Background(), tokenStr)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Token)
 	assert.NotEmpty(t, result.RefreshToken)
@@ -209,7 +222,7 @@ func TestAuthService_RefreshTokens_InvalidToken(t *testing.T) {
 	userSvc := &mockUserService{}
 	svc, _, _ := newTestAuthService(userSvc)
 
-	_, err := svc.RefreshTokens("invalid-token")
+	_, err := svc.RefreshTokens(context.Background(), "invalid-token")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid refresh token")
 }
@@ -223,7 +236,7 @@ func TestAuthService_ResetPassword_SuperRole(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return &domain.User{ID: "U1", Username: "user1", Password: string(hashed)}, nil
 		},
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
 			updated = true
 			return &domain.User{ID: "U1"}, nil
 		},
@@ -307,4 +320,78 @@ func TestAuthService_Register_FindByUsernameError(t *testing.T) {
 
 	_, err := svc.Register(context.Background(), &domain.User{Username: "u1", Password: "pass"}, nil)
 	assert.EqualError(t, err, "db error")
+}
+
+func TestAuthService_RefreshTokens_ReflectsCurrentRole(t *testing.T) {
+	// Token was issued while the user was SUPER; the record now says GUEST.
+	userSvc := &mockUserService{
+		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+			return &domain.User{ID: id, Role: domain.RoleGuest, Status: true}, nil
+		},
+	}
+	svc, _, _ := newTestAuthService(userSvc)
+
+	old := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"id": "U1", "role": "SUPER", "exp": float64(9999999999),
+	})
+	tokenStr, _ := old.SignedString([]byte("test-refresh-secret"))
+
+	result, err := svc.RefreshTokens(context.Background(), tokenStr)
+	require.NoError(t, err)
+
+	parsed, err := jwt.Parse(result.Token, func(*jwt.Token) (any, error) {
+		return []byte("test-secret"), nil
+	})
+	require.NoError(t, err)
+	claims := parsed.Claims.(jwt.MapClaims)
+	assert.Equal(t, "GUEST", claims["role"])
+}
+
+func TestAuthService_RefreshTokens_InactiveUser(t *testing.T) {
+	userSvc := &mockUserService{
+		FindOneFn: func(_ context.Context, id string) (*domain.User, error) {
+			return &domain.User{ID: id, Role: domain.RoleGuest, Status: false}, nil
+		},
+	}
+	svc, _, _ := newTestAuthService(userSvc)
+
+	old := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"id": "U1", "role": "GUEST", "exp": float64(9999999999),
+	})
+	tokenStr, _ := old.SignedString([]byte("test-refresh-secret"))
+
+	_, err := svc.RefreshTokens(context.Background(), tokenStr)
+	assert.EqualError(t, err, "user is no longer active")
+}
+
+func TestAuthService_ResetPassword_RejectsOtherUsersAccount(t *testing.T) {
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 10)
+	userSvc := &mockUserService{
+		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
+			return &domain.User{ID: "VICTIM", Password: string(hashed)}, nil
+		},
+	}
+	svc, _, _ := newTestAuthService(userSvc)
+
+	_, err := svc.ResetPassword(context.Background(), "victim", "newpass", "oldpass",
+		&ports.JwtPayload{ID: "ATTACKER", Role: "GUEST"})
+	assert.EqualError(t, err, "you can only reset your own password")
+}
+
+func TestAuthService_ResetPassword_OwnAccountAllowed(t *testing.T) {
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 10)
+	userSvc := &mockUserService{
+		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
+			return &domain.User{ID: "U1", Password: string(hashed)}, nil
+		},
+		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
+			return &domain.User{ID: "U1"}, nil
+		},
+	}
+	svc, _, _ := newTestAuthService(userSvc)
+
+	msg, err := svc.ResetPassword(context.Background(), "user1", "newpass", "oldpass",
+		&ports.JwtPayload{ID: "U1", Role: "GUEST"})
+	require.NoError(t, err)
+	assert.Equal(t, "Password reset successfully", msg)
 }

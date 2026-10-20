@@ -9,18 +9,27 @@ import (
 	"net/http"
 	"net/textproto"
 	"strings"
+	"time"
 
 	"github.com/efangly/smtrack-authentication/config"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
 )
 
+// uploadTimeout bounds every call to the image service. Without it a hung
+// upstream would pin the request goroutine forever.
+const uploadTimeout = 30 * time.Second
+
 type fileUploadAdapter struct {
 	uploadPath string
+	client     *http.Client
 }
 
 func NewFileUploadAdapter(cfg *config.Config) ports.FileUploadPort {
-	return &fileUploadAdapter{uploadPath: cfg.UploadPath}
+	return &fileUploadAdapter{
+		uploadPath: cfg.UploadPath,
+		client:     &http.Client{Timeout: uploadTimeout},
+	}
 }
 
 func (f *fileUploadAdapter) Upload(fileHeader *multipart.FileHeader, path string) (string, error) {
@@ -63,8 +72,7 @@ func (f *fileUploadAdapter) Upload(fileHeader *multipart.FileHeader, path string
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := f.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("upload request failed: %w", err)
 	}
@@ -109,12 +117,16 @@ func (f *fileUploadAdapter) Delete(path string, filename string) error {
 		return fmt.Errorf("failed to create delete request: %w", err)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := f.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("delete request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete server error: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
 
 	return nil
 }

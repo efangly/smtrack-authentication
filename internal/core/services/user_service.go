@@ -9,28 +9,48 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type userService struct {
 	repo   ports.UserRepository
 	cache  ports.CachePort
 	upload ports.FileUploadPort
+	audit  ports.AuditService
 }
 
 // NewUserService creates a new user service
-func NewUserService(repo ports.UserRepository, cache ports.CachePort, upload ports.FileUploadPort) ports.UserService {
-	return &userService{repo: repo, cache: cache, upload: upload}
+func NewUserService(repo ports.UserRepository, cache ports.CachePort, upload ports.FileUploadPort, audit ports.AuditService) ports.UserService {
+	return &userService{repo: repo, cache: cache, upload: upload, audit: audit}
 }
 
-func (s *userService) Create(ctx context.Context, user *domain.User) (*domain.User, error) {
+func (s *userService) Create(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error) {
+	// An unset role falls back to the least-privileged one; a set role must be
+	// one we actually know about.
+	if user.Role == "" {
+		user.Role = domain.RoleGuest
+	} else if !user.Role.IsValid() {
+		return nil, fmt.Errorf("invalid role: %s", user.Role)
+	}
 	if user.ID == "" {
 		user.ID = uuid.New().String()
 	}
 	user.Username = strings.ToLower(user.Username)
+
+	// Every path into Create carries a plain-text password (authService.Register
+	// hashes its own copy separately via ToPublicUser, but the authenticated
+	// POST /auth/user path reaches here directly), so it must be hashed here —
+	// mirroring the password branch in Update.
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcryptCost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+	user.Password = string(hashedPassword)
+
 	now := time.Now()
 	user.CreatedAt = now
 	user.UpdatedAt = now
@@ -42,6 +62,7 @@ func (s *userService) Create(ctx context.Context, user *domain.User) (*domain.Us
 
 	// Clear cache
 	s.cache.Del(ctx, "user")
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionCreate, result.ID, caller, result)
 	return result, nil
 }
 
@@ -106,7 +127,7 @@ func (s *userService) FindByUsername(ctx context.Context, username string) (*dom
 	return user, nil
 }
 
-func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.User, error) {
+func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error) {
 	if file != nil {
 		picURL, err := s.upload.Upload(file, "user")
 		if err != nil {
@@ -125,6 +146,20 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 		}
 	}
 
+	// A password must never reach the database in plain text. This is the single
+	// place that hashes on update, so callers pass the plain value.
+	if raw, ok := data["password"]; ok {
+		plain, ok := raw.(string)
+		if !ok || plain == "" {
+			return nil, errors.New("invalid password")
+		}
+		hashed, err := bcrypt.GenerateFromPassword([]byte(plain), bcryptCost)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash password: %w", err)
+		}
+		data["password"] = string(hashed)
+	}
+
 	data["updateAt"] = time.Now()
 
 	updatedUser, err := s.repo.Update(ctx, id, data)
@@ -139,10 +174,11 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 		s.cache.Del(ctx, fmt.Sprintf("user:%s", updatedUser.Username))
 	}
 
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionUpdate, id, caller, data)
 	return updatedUser, nil
 }
 
-func (s *userService) Remove(ctx context.Context, id string) (*domain.User, error) {
+func (s *userService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
 	// Check existence
 	existing, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -173,6 +209,7 @@ func (s *userService) Remove(ctx context.Context, id string) (*domain.User, erro
 		s.cache.Del(ctx, fmt.Sprintf("user:%s", user.Username))
 	}
 
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionDelete, id, caller, user)
 	return user, nil
 }
 

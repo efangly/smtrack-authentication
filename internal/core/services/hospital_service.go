@@ -20,6 +20,7 @@ type hospitalService struct {
 	cache     ports.CachePort
 	upload    ports.FileUploadPort
 	messaging ports.MessagingPort
+	audit     ports.AuditService
 }
 
 // NewHospitalService creates a new hospital service
@@ -28,16 +29,18 @@ func NewHospitalService(
 	cache ports.CachePort,
 	upload ports.FileUploadPort,
 	messaging ports.MessagingPort,
+	audit ports.AuditService,
 ) ports.HospitalService {
 	return &hospitalService{
 		repo:      repo,
 		cache:     cache,
 		upload:    upload,
 		messaging: messaging,
+		audit:     audit,
 	}
 }
 
-func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader) (*domain.Hospital, error) {
+func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error) {
 	if hospital.ID == "" {
 		hospital.ID = uuid.New().String()
 	}
@@ -60,6 +63,7 @@ func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital,
 	}
 
 	s.cache.Del(ctx, "hospital")
+	s.audit.Record(ctx, domain.AuditEntityHospital, domain.AuditActionCreate, result.ID, caller, result)
 	return result, nil
 }
 
@@ -99,7 +103,7 @@ func (s *hospitalService) FindOne(ctx context.Context, id string) (*domain.Hospi
 	return hospital, nil
 }
 
-func (s *hospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader) (*domain.Hospital, error) {
+func (s *hospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error) {
 	if file != nil {
 		picURL, err := s.upload.Upload(file, "hospital")
 		if err != nil {
@@ -140,10 +144,14 @@ func (s *hospitalService) Update(ctx context.Context, id string, data map[string
 	}
 
 	s.cache.Del(ctx, "hospital")
+	// User and ward listings embed hospital data, so they go stale too.
+	s.cache.Del(ctx, "ward")
+	s.cache.Del(ctx, "user")
+	s.audit.Record(ctx, domain.AuditEntityHospital, domain.AuditActionUpdate, id, caller, data)
 	return hospital, nil
 }
 
-func (s *hospitalService) Remove(ctx context.Context, id string) (*domain.Hospital, error) {
+func (s *hospitalService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error) {
 	existing, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -167,6 +175,10 @@ func (s *hospitalService) Remove(ctx context.Context, id string) (*domain.Hospit
 	}
 
 	s.cache.Del(ctx, "hospital")
+	// User and ward listings embed hospital data, so they go stale too.
+	s.cache.Del(ctx, "ward")
+	s.cache.Del(ctx, "user")
+	s.audit.Record(ctx, domain.AuditEntityHospital, domain.AuditActionDelete, id, caller, hospital)
 	return hospital, nil
 }
 
@@ -190,6 +202,12 @@ func buildHospitalConditions(caller *ports.JwtPayload) (map[string]any, []map[st
 	case "SUPER":
 		key = "hospital"
 	case "USER", "LEGACY_USER", "GUEST":
+		// An empty wardId would filter on "" and, worse, make every ward-less
+		// caller share the cache key "hospital:".
+		if caller.WardID == "" {
+			key = "hospital"
+			break
+		}
 		conditions = map[string]any{"wardId": caller.WardID}
 		key = fmt.Sprintf("hospital:%s", caller.WardID)
 	default:

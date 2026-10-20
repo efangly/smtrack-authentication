@@ -5,16 +5,17 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func newTestUserService(repo *mockUserRepo) (ports.UserService, *mockCache, *mockUpload) {
 	cache := newMockCache()
 	upload := newMockUpload()
-	svc := NewUserService(repo, cache, upload)
+	svc := NewUserService(repo, cache, upload, newMockAuditService())
 	return svc, cache, upload
 }
 
@@ -31,7 +32,7 @@ func TestUserService_Create_Success(t *testing.T) {
 	user, err := svc.Create(context.Background(), &domain.User{
 		Username: "TestUser",
 		WardID:   "W1",
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, user.ID)                // uuid generated
 	assert.Equal(t, "testuser", user.Username) // lowercased
@@ -50,9 +51,30 @@ func TestUserService_Create_PreservesID(t *testing.T) {
 	user, err := svc.Create(context.Background(), &domain.User{
 		ID:       "CUSTOM-ID",
 		Username: "User1",
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "CUSTOM-ID", user.ID)
+}
+
+func TestUserService_Create_HashesPassword(t *testing.T) {
+	repo := &mockUserRepo{
+		CreateFn: func(_ context.Context, user *domain.User) (*domain.User, error) {
+			return user, nil
+		},
+	}
+	svc, _, _ := newTestUserService(repo)
+
+	user, err := svc.Create(context.Background(), &domain.User{
+		Username: "TestUser",
+		Password: "pass1234",
+		WardID:   "W1",
+	}, nil)
+	require.NoError(t, err)
+	// Create is the single place that hashes on this path (Register hashes
+	// nothing itself — it relies on this), so every caller must see a hash,
+	// never the plain value it sent in.
+	assert.NotEqual(t, "pass1234", user.Password)
+	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(user.Password), []byte("pass1234")))
 }
 
 func TestUserService_Create_RepoError(t *testing.T) {
@@ -63,7 +85,7 @@ func TestUserService_Create_RepoError(t *testing.T) {
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	_, err := svc.Create(context.Background(), &domain.User{Username: "u1"})
+	_, err := svc.Create(context.Background(), &domain.User{Username: "u1"}, nil)
 	assert.EqualError(t, err, "db error")
 }
 
@@ -161,7 +183,7 @@ func TestUserService_Update_Success(t *testing.T) {
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	user, err := svc.Update(context.Background(), "U1", map[string]any{"username": "updated"}, nil)
+	user, err := svc.Update(context.Background(), "U1", map[string]any{"username": "updated"}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "updated", user.Username)
 }
@@ -174,7 +196,7 @@ func TestUserService_Update_RepoError(t *testing.T) {
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	_, err := svc.Update(context.Background(), "U1", map[string]any{}, nil)
+	_, err := svc.Update(context.Background(), "U1", map[string]any{}, nil, nil)
 	assert.EqualError(t, err, "update failed")
 }
 
@@ -191,7 +213,7 @@ func TestUserService_Remove_Success(t *testing.T) {
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	user, err := svc.Remove(context.Background(), "U1")
+	user, err := svc.Remove(context.Background(), "U1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "U1", user.ID)
 }
@@ -204,7 +226,7 @@ func TestUserService_Remove_NotFound(t *testing.T) {
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	_, err := svc.Remove(context.Background(), "nonexistent")
+	_, err := svc.Remove(context.Background(), "nonexistent", nil)
 	assert.EqualError(t, err, "user not found")
 }
 
@@ -225,7 +247,7 @@ func TestUserService_Remove_WithPic(t *testing.T) {
 		return nil
 	}
 
-	_, err := svc.Remove(context.Background(), "U1")
+	_, err := svc.Remove(context.Background(), "U1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "photo.jpg", deleteCalledWith)
 }

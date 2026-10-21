@@ -23,7 +23,10 @@ func (h *HospitalHandler) Create(c fiber.Ctx) error {
 		return badRequest(c, err)
 	}
 
-	file, _ := c.FormFile("image")
+	file, err := formFile(c, "image")
+	if err != nil {
+		return uploadError(c, err)
+	}
 	caller := getCaller(c)
 
 	hospital := req.ToHospital()
@@ -75,7 +78,10 @@ func (h *HospitalHandler) Update(c fiber.Ctx) error {
 		return badRequest(c, err)
 	}
 
-	file, _ := c.FormFile("image")
+	file, err := formFile(c, "image")
+	if err != nil {
+		return uploadError(c, err)
+	}
 	caller := getCaller(c)
 
 	result, err := h.hospitalService.Update(c.Context(), id, req.ToMap(), file, caller)

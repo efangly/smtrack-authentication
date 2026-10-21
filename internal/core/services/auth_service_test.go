@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"mime/multipart"
 	"testing"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
@@ -80,14 +79,14 @@ func TestAuthService_Register_WithFile(t *testing.T) {
 		},
 	}
 	svc, _, upload := newTestAuthService(userSvc)
-	upload.UploadFn = func(_ *multipart.FileHeader, _ string) (string, error) {
+	upload.UploadFn = func(_ *domain.File, _ string) (string, error) {
 		return "http://cdn.example.com/user/pic.jpg", nil
 	}
 
 	user, err := svc.Register(context.Background(), &domain.User{
 		Username: "newuser",
 		Password: "pass1234",
-	}, &multipart.FileHeader{Filename: "pic.jpg"})
+	}, &domain.File{Name: "pic.jpg"})
 
 	require.NoError(t, err)
 	assert.NotNil(t, user.Pic)
@@ -227,7 +226,7 @@ func TestAuthService_ResetPassword_SuperRole(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return &domain.User{ID: "U1", Username: "user1", Password: hashed}, nil
 		},
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			updated = true
 			return &domain.User{ID: "U1"}, nil
 		},
@@ -342,7 +341,7 @@ func TestAuthService_ResetPassword_OwnAccountAllowed(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return &domain.User{ID: "U1", Password: hashed}, nil
 		},
-		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			return &domain.User{ID: "U1"}, nil
 		},
 	}

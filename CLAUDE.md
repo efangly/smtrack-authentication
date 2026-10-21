@@ -114,6 +114,11 @@ These were bugs once. Do not regress them.
 - **Refresh rebuilds claims from the database** (`authService.RefreshTokens`), never by
   copying the old token's claims, so a demoted or deactivated user loses access at the next
   refresh instead of keeping it for the token's remaining lifetime.
+- **Uploads go through `handlers.formFile`.** It caps the image at `maxImageBytes`, sniffs
+  the type from the bytes (JPEG/PNG/WebP only — the client's `Content-Type` is ignored) and
+  hands the core a `domain.File`. The upload adapter escapes the client filename with
+  `mime.FormatMediaType` because it is copied into a header sent upstream. Never call
+  `c.FormFile` directly in a handler.
 - CORS lives in `main.go` on purpose even though KrakenD also sets it; leave it unless
   asked. Rate limiting on `/auth/login` and `/auth/register` is per-client-IP and
   in-process — it resets on restart and is not shared across replicas. The key comes from

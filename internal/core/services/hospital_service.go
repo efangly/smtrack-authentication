@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"mime/multipart"
 	"strings"
 	"time"
 
@@ -40,13 +39,13 @@ func NewHospitalService(
 	}
 }
 
-func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error) {
+func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
 	if hospital.ID == "" {
 		hospital.ID = uuid.New().String()
 	}
 
 	if file != nil {
-		picURL, err := s.upload.Upload(file, "hospital")
+		picURL, err := s.upload.Upload(ctx, file, "hospital")
 		if err != nil {
 			return nil, fmt.Errorf("image upload failed: %w", err)
 		}
@@ -108,9 +107,9 @@ func (s *hospitalService) FindOne(ctx context.Context, id string, caller *domain
 	return hospital, nil
 }
 
-func (s *hospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error) {
+func (s *hospitalService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
 	if file != nil {
-		picURL, err := s.upload.Upload(file, "hospital")
+		picURL, err := s.upload.Upload(ctx, file, "hospital")
 		if err != nil {
 			return nil, fmt.Errorf("image upload failed: %w", err)
 		}

@@ -86,11 +86,11 @@
 
 ## Phase 3 — `domain.File` แทน multipart (L4, M4)
 
-- [ ] `domain/file.go`: `type File struct{ Name, ContentType string; Size int64; Content io.Reader }`
-- [ ] `FileUploadPort.Upload(ctx, domain.File, path string)`; service ports ที่รับไฟล์ใช้ `*domain.File`
-- [ ] helper ใน handlers: `formFile(c, "image") (*domain.File, error)` — เปิดไฟล์, ตรวจ **ขนาด ≤ 5MB** และ **MIME เป็น image/jpeg|png|webp** (sniff จาก bytes) → 400 ถ้าไม่ผ่าน (ปิด M4)
-- [ ] upload adapter: escape filename ด้วย `mime.FormatMediaType` / ใช้ชื่อที่ generate เอง (ปิด header injection)
-- [ ] ลบ allowlist `mime/multipart`
+- [x] `domain/file.go`: `File{Name, ContentType string; Data []byte}` — ใช้ `[]byte` แทน `io.Reader` เพราะต้องอ่านทั้งไฟล์มาตรวจขนาด/ชนิดอยู่แล้ว
+- [x] `FileUploadPort.Upload(ctx, *domain.File, path)` (adapter ใช้ `NewRequestWithContext`); service ports รับ `*domain.File`
+- [x] `handlers.formFile(c, "image")` — cap = `fiber.DefaultBodyLimit` (4MB; **ไม่ใช่ 5MB** ตามแผนเดิมเพราะ body limit ของ Fiber ตัดที่ 4MB ก่อนอยู่แล้ว), sniff MIME จาก bytes → jpeg/png/webp เท่านั้น, อื่นๆ → 400 (ปิด M4)
+- [x] upload adapter: filename ผ่าน `safeFilename` + `mime.FormatMediaType` (ปิด header injection)
+- [x] ลบ allowlist `mime/multipart` — `importAllowlist` ว่างแล้ว
 
 ## Phase 4 — Filter และ Patch แบบมี type (L5)
 

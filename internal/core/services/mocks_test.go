@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"mime/multipart"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
@@ -145,20 +144,20 @@ func (m *mockMessaging) SendToLegacy(queue string, payload any) error {
 
 // --- Mock FileUploadPort ---
 type mockUpload struct {
-	UploadFn func(file *multipart.FileHeader, path string) (string, error)
+	UploadFn func(file *domain.File, path string) (string, error)
 	DeleteFn func(path string, filename string) error
 }
 
 func newMockUpload() *mockUpload {
 	return &mockUpload{
-		UploadFn: func(_ *multipart.FileHeader, _ string) (string, error) {
+		UploadFn: func(_ *domain.File, _ string) (string, error) {
 			return "http://example.com/pic.jpg", nil
 		},
 		DeleteFn: func(string, string) error { return nil },
 	}
 }
 
-func (m *mockUpload) Upload(file *multipart.FileHeader, path string) (string, error) {
+func (m *mockUpload) Upload(_ context.Context, file *domain.File, path string) (string, error) {
 	return m.UploadFn(file, path)
 }
 func (m *mockUpload) Delete(path string, filename string) error {
@@ -172,7 +171,7 @@ type mockUserService struct {
 	FindOneFn        func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
-	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.User, error)
+	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 }
 
@@ -191,7 +190,7 @@ func (m *mockUserService) FindByID(ctx context.Context, id string) (*domain.User
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
-func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.User, error) {
+func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
 }
 func (m *mockUserService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {

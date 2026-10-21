@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"mime/multipart"
 	"strings"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
@@ -36,7 +35,7 @@ func NewAuthService(
 	}
 }
 
-func (s *authService) Register(ctx context.Context, data *domain.User, file *multipart.FileHeader) (*domain.User, error) {
+func (s *authService) Register(ctx context.Context, data *domain.User, file *domain.File) (*domain.User, error) {
 	existing, err := s.userService.FindByUsername(ctx, strings.ToLower(data.Username))
 	if err != nil {
 		return nil, err
@@ -46,7 +45,7 @@ func (s *authService) Register(ctx context.Context, data *domain.User, file *mul
 	}
 
 	if file != nil {
-		picURL, err := s.upload.Upload(file, "user")
+		picURL, err := s.upload.Upload(ctx, file, "user")
 		if err != nil {
 			logger.Error("Failed to upload user image", "error", err)
 			return nil, fmt.Errorf("image upload failed: %w", err)

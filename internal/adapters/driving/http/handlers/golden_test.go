@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -127,7 +126,7 @@ func goldenCases() []goldenCase {
 	ward := goldenWard()
 
 	okAuth := &mockAuthService{
-		RegisterFn: func(_ context.Context, _ *domain.User, _ *multipart.FileHeader) (*domain.User, error) {
+		RegisterFn: func(_ context.Context, _ *domain.User, _ *domain.File) (*domain.User, error) {
 			u := goldenUser()
 			u.Role = domain.RoleGuest
 			u.Ward = nil
@@ -148,7 +147,7 @@ func goldenCases() []goldenCase {
 		},
 	}
 	failAuth := &mockAuthService{
-		RegisterFn: func(_ context.Context, _ *domain.User, _ *multipart.FileHeader) (*domain.User, error) {
+		RegisterFn: func(_ context.Context, _ *domain.User, _ *domain.File) (*domain.User, error) {
 			return nil, errDomain
 		},
 		ValidateUserFn: func(_ context.Context, _, _ string) (*domain.User, error) { return nil, nil },
@@ -157,7 +156,7 @@ func goldenCases() []goldenCase {
 		},
 	}
 	brokenAuth := &mockAuthService{
-		RegisterFn: func(_ context.Context, _ *domain.User, _ *multipart.FileHeader) (*domain.User, error) {
+		RegisterFn: func(_ context.Context, _ *domain.User, _ *domain.File) (*domain.User, error) {
 			return nil, errInternal
 		},
 	}
@@ -166,7 +165,7 @@ func goldenCases() []goldenCase {
 		CreateFn:  func(_ context.Context, _ *domain.User, _ *domain.Actor) (*domain.User, error) { return user, nil },
 		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.User, error) { return userList, nil },
 		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			return user, nil
 		},
 		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
@@ -179,14 +178,14 @@ func goldenCases() []goldenCase {
 	}
 
 	okHospitals := &mockHospitalService{
-		CreateFn: func(_ context.Context, _ *domain.Hospital, _ *multipart.FileHeader, _ *domain.Actor) (*domain.Hospital, error) {
+		CreateFn: func(_ context.Context, _ *domain.Hospital, _ *domain.File, _ *domain.Actor) (*domain.Hospital, error) {
 			return hospital, nil
 		},
 		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Hospital, error) {
 			return []domain.Hospital{*goldenHospital()}, nil
 		},
 		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.Hospital, error) {
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.Hospital, error) {
 			return hospital, nil
 		},
 		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },

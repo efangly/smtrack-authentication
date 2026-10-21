@@ -2,16 +2,20 @@ package upload
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/efangly/smtrack-authentication/config"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
 )
@@ -32,41 +36,33 @@ func NewFileUploadAdapter(cfg *config.Config) ports.FileUploadPort {
 	}
 }
 
-func (f *fileUploadAdapter) Upload(fileHeader *multipart.FileHeader, path string) (string, error) {
-	file, err := fileHeader.Open()
-	if err != nil {
-		return "", fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
+func (f *fileUploadAdapter) Upload(ctx context.Context, file *domain.File, path string) (string, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
+	logger.Info("Uploading file", "filename", file.Name, "size", len(file.Data), "mimeType", file.ContentType)
 
-	// Read file content to detect actual MIME type
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-	mimeType := http.DetectContentType(fileBytes)
-	logger.Info("Uploading file", "filename", fileHeader.Filename, "size", len(fileBytes), "mimeType", mimeType)
-
-	// Use CreatePart with correct Content-Type instead of CreateFormFile
-	// (CreateFormFile always sets application/octet-stream)
+	// FormatMediaType quotes and escapes the client-supplied name, so a name
+	// containing quotes or CR/LF cannot inject headers into the part sent
+	// upstream. CreatePart (not CreateFormFile, which always says
+	// application/octet-stream) carries the detected content type.
 	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, fileHeader.Filename))
-	h.Set("Content-Type", mimeType)
+	h.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+		"name":     "file",
+		"filename": safeFilename(file.Name),
+	}))
+	h.Set("Content-Type", file.ContentType)
 	part, err := writer.CreatePart(h)
 	if err != nil {
 		return "", fmt.Errorf("failed to create form file: %w", err)
 	}
 
-	if _, err := io.Copy(part, bytes.NewReader(fileBytes)); err != nil {
+	if _, err := part.Write(file.Data); err != nil {
 		return "", fmt.Errorf("failed to copy file: %w", err)
 	}
 	writer.Close()
 
 	url := fmt.Sprintf("%s/api/image/%s", f.uploadPath, path)
-	req, err := http.NewRequest("POST", url, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -101,6 +97,22 @@ func (f *fileUploadAdapter) Upload(fileHeader *multipart.FileHeader, path string
 	}
 
 	return fmt.Sprintf("%s%s", f.uploadPath, result.Path), nil
+}
+
+// safeFilename keeps only the base name of what the client sent, with control
+// characters removed; an empty result becomes "upload".
+func safeFilename(name string) string {
+	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	if name == "" || name == "." || name == "/" {
+		return "upload"
+	}
+	return name
 }
 
 func (f *fileUploadAdapter) Delete(path string, filename string) error {

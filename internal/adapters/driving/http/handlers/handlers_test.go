@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,14 +22,14 @@ import (
 // ── Mock services ──────────────────────────────────────────────────
 
 type mockAuthService struct {
-	RegisterFn      func(ctx context.Context, data *domain.User, file *multipart.FileHeader) (*domain.User, error)
+	RegisterFn      func(ctx context.Context, data *domain.User, file *domain.File) (*domain.User, error)
 	ValidateUserFn  func(ctx context.Context, username string, password string) (*domain.User, error)
 	LoginFn         func(ctx context.Context, user *domain.User) (*ports.LoginResult, error)
 	RefreshTokensFn func(ctx context.Context, token string) (*ports.RefreshResult, error)
 	ResetPasswordFn func(ctx context.Context, username string, password string, oldPassword string, caller *domain.Actor) (string, error)
 }
 
-func (m *mockAuthService) Register(ctx context.Context, data *domain.User, file *multipart.FileHeader) (*domain.User, error) {
+func (m *mockAuthService) Register(ctx context.Context, data *domain.User, file *domain.File) (*domain.User, error) {
 	return m.RegisterFn(ctx, data, file)
 }
 func (m *mockAuthService) ValidateUser(ctx context.Context, username string, password string) (*domain.User, error) {
@@ -52,7 +51,7 @@ type mockUserService struct {
 	FindOneFn        func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
-	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.User, error)
+	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 }
 
@@ -71,7 +70,7 @@ func (m *mockUserService) FindByID(ctx context.Context, id string) (*domain.User
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
-func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.User, error) {
+func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
 }
 func (m *mockUserService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
@@ -79,14 +78,14 @@ func (m *mockUserService) Remove(ctx context.Context, id string, caller *domain.
 }
 
 type mockHospitalService struct {
-	CreateFn  func(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error)
+	CreateFn  func(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	FindAllFn func(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error)
 	FindOneFn func(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
-	UpdateFn  func(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error)
+	UpdateFn  func(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	RemoveFn  func(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
 }
 
-func (m *mockHospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error) {
+func (m *mockHospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
 	return m.CreateFn(ctx, hospital, file, caller)
 }
 func (m *mockHospitalService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error) {
@@ -95,7 +94,7 @@ func (m *mockHospitalService) FindAll(ctx context.Context, caller *domain.Actor)
 func (m *mockHospitalService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
 	return m.FindOneFn(ctx, id, caller)
 }
-func (m *mockHospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error) {
+func (m *mockHospitalService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
 }
 func (m *mockHospitalService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
@@ -758,7 +757,7 @@ func TestUserHandler_FindOne_ForbiddenForOtherUser(t *testing.T) {
 func TestUserHandler_Update_ForbiddenForOtherUser(t *testing.T) {
 	called := false
 	svc := &mockUserService{
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			called = true
 			return &domain.User{}, nil
 		},
@@ -778,7 +777,7 @@ func TestUserHandler_Update_ForbiddenForOtherUser(t *testing.T) {
 func TestUserHandler_Update_NonAdminCannotEscalateRole(t *testing.T) {
 	var received map[string]any
 	svc := &mockUserService{
-		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			received = data
 			return &domain.User{ID: "U1"}, nil
 		},
@@ -803,7 +802,7 @@ func TestUserHandler_Update_NonAdminCannotEscalateRole(t *testing.T) {
 func TestUserHandler_Update_AdminKeepsPrivilegedFields(t *testing.T) {
 	var received map[string]any
 	svc := &mockUserService{
-		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			received = data
 			return &domain.User{ID: "U2"}, nil
 		},

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"mime/multipart"
 	"strings"
 	"time"
 
@@ -164,7 +163,7 @@ func (s *userService) FindByUsername(ctx context.Context, username string) (*dom
 	return user, nil
 }
 
-func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.User, error) {
+func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error) {
 	target, err := s.authorizeChange(ctx, id, caller)
 	if err != nil {
 		return nil, err
@@ -191,7 +190,7 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 	}
 
 	if file != nil {
-		picURL, err := s.upload.Upload(file, "user")
+		picURL, err := s.upload.Upload(ctx, file, "user")
 		if err != nil {
 			return nil, fmt.Errorf("image upload failed: %w", err)
 		}

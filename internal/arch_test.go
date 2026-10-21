@@ -44,10 +44,7 @@ var layerRules = map[string][]string{
 }
 
 // importAllowlist maps "package -> import" to the phase that removes it.
-var importAllowlist = map[string]string{
-	"internal/core/ports -> mime/multipart":    "Phase 3",
-	"internal/core/services -> mime/multipart": "Phase 3",
-}
+var importAllowlist = map[string]string{}
 
 // tagAllowlist maps a domain file to the phase that strips its gorm/json tags.
 var tagAllowlist = map[string]string{

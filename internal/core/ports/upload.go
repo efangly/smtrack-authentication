@@ -1,9 +1,13 @@
 package ports
 
-import "mime/multipart"
+import (
+	"context"
+
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
+)
 
 // FileUploadPort defines the driven port for file upload operations
 type FileUploadPort interface {
-	Upload(file *multipart.FileHeader, path string) (string, error)
+	Upload(ctx context.Context, file *domain.File, path string) (string, error)
 	Delete(path string, filename string) error
 }

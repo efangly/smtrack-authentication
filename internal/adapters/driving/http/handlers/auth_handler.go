@@ -20,7 +20,10 @@ func (h *AuthHandler) Register(c fiber.Ctx) error {
 		return badRequest(c, err)
 	}
 
-	file, _ := c.FormFile("image")
+	file, err := formFile(c, "image")
+	if err != nil {
+		return uploadError(c, err)
+	}
 
 	// Public endpoint: role/status/id are forced, never taken from the body.
 	user := req.ToPublicUser()

@@ -2,7 +2,6 @@ package ports
 
 import (
 	"context"
-	"mime/multipart"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 )
@@ -29,7 +28,7 @@ type RefreshResult struct {
 
 // AuthService defines the driving port for authentication use cases
 type AuthService interface {
-	Register(ctx context.Context, data *domain.User, file *multipart.FileHeader) (*domain.User, error)
+	Register(ctx context.Context, data *domain.User, file *domain.File) (*domain.User, error)
 	ValidateUser(ctx context.Context, username string, password string) (*domain.User, error)
 	Login(ctx context.Context, user *domain.User) (*LoginResult, error)
 	RefreshTokens(ctx context.Context, token string) (*RefreshResult, error)
@@ -48,16 +47,16 @@ type UserService interface {
 	// user matches. Never expose them to a request directly.
 	FindByID(ctx context.Context, id string) (*domain.User, error)
 	FindByUsername(ctx context.Context, username string) (*domain.User, error)
-	Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.User, error)
+	Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 }
 
 // HospitalService defines the driving port for hospital use cases
 type HospitalService interface {
-	Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error)
+	Create(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error)
 	FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
-	Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error)
+	Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
 }
 

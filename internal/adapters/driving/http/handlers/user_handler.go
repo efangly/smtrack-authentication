@@ -97,7 +97,10 @@ func (h *UserHandler) Update(c fiber.Ctx) error {
 		delete(data, "wardId")
 	}
 
-	file, _ := c.FormFile("image")
+	file, err := formFile(c, "image")
+	if err != nil {
+		return uploadError(c, err)
+	}
 
 	result, err := h.userService.Update(c.Context(), id, data, file, caller)
 	if err != nil {

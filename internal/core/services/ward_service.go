@@ -60,7 +60,7 @@ func (s *wardService) Create(ctx context.Context, ward *domain.Ward, caller *dom
 }
 
 func (s *wardService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error) {
-	conditions, notConditions, key := buildWardConditions(caller)
+	filter, key := buildWardFilter(caller)
 
 	// Check cache
 	cached, err := s.cache.Get(ctx, key)
@@ -71,7 +71,7 @@ func (s *wardService) FindAll(ctx context.Context, caller *domain.Actor) ([]doma
 		}
 	}
 
-	wards, err := s.repo.FindAll(ctx, conditions, notConditions)
+	wards, err := s.repo.FindAll(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -99,10 +99,8 @@ func (s *wardService) FindOne(ctx context.Context, id string, caller *domain.Act
 	return ward, nil
 }
 
-func (s *wardService) Update(ctx context.Context, id string, data map[string]any, caller *domain.Actor) (*domain.Ward, error) {
-	data["updateAt"] = time.Now()
-
-	ward, err := s.repo.Update(ctx, id, data)
+func (s *wardService) Update(ctx context.Context, id string, patch domain.WardPatch, caller *domain.Actor) (*domain.Ward, error) {
+	ward, err := s.repo.Update(ctx, id, patch)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +128,7 @@ func (s *wardService) Update(ctx context.Context, id string, data map[string]any
 	// User listings embed their ward, so they go stale too.
 	s.cache.Del(ctx, "user")
 
-	s.audit.Record(ctx, domain.AuditEntityWard, domain.AuditActionUpdate, id, caller, data)
+	s.audit.Record(ctx, domain.AuditEntityWard, domain.AuditActionUpdate, id, caller, wardPatchChanges(patch))
 	return ward, nil
 }
 
@@ -157,28 +155,14 @@ func (s *wardService) Remove(ctx context.Context, id string, caller *domain.Acto
 	return "Ward deleted successfully", nil
 }
 
-func buildWardConditions(caller *domain.Actor) (map[string]any, []map[string]any, string) {
-	var conditions map[string]any
-	var notConditions []map[string]any
-	var key string
-
+// buildWardFilter is the ward listing each role may see, and its cache key.
+func buildWardFilter(caller *domain.Actor) (ports.WardFilter, string) {
 	switch caller.Role {
 	case domain.RoleAdmin, domain.RoleLegacyAdmin:
-		conditions = map[string]any{"hosId": caller.HosID}
-		notConditions = []map[string]any{
-			{"hosId": "HID-DEVELOPMENT"},
-		}
-		key = fmt.Sprintf("ward:%s", caller.HosID)
+		return ports.WardFilter{HosID: caller.HosID, ExcludeHosIDs: []string{developmentHosID}},
+			fmt.Sprintf("ward:%s", caller.HosID)
 	case domain.RoleService:
-		notConditions = []map[string]any{
-			{"hosId": "HID-DEVELOPMENT"},
-		}
-		key = "ward:HID-DEVELOPMENT"
-	case domain.RoleSuper:
-		key = "ward"
-	default:
-		key = "ward"
+		return ports.WardFilter{ExcludeHosIDs: []string{developmentHosID}}, "ward:" + developmentHosID
 	}
-
-	return conditions, notConditions, key
+	return ports.WardFilter{}, "ward"
 }

@@ -51,7 +51,7 @@ type mockUserService struct {
 	FindOneFn        func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
-	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error)
+	UpdateFn         func(ctx context.Context, id string, data domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 }
 
@@ -70,7 +70,7 @@ func (m *mockUserService) FindByID(ctx context.Context, id string) (*domain.User
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
-func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error) {
+func (m *mockUserService) Update(ctx context.Context, id string, data domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
 }
 func (m *mockUserService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
@@ -81,7 +81,7 @@ type mockHospitalService struct {
 	CreateFn  func(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	FindAllFn func(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error)
 	FindOneFn func(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
-	UpdateFn  func(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
+	UpdateFn  func(ctx context.Context, id string, data domain.HospitalPatch, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	RemoveFn  func(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
 }
 
@@ -94,7 +94,7 @@ func (m *mockHospitalService) FindAll(ctx context.Context, caller *domain.Actor)
 func (m *mockHospitalService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
 	return m.FindOneFn(ctx, id, caller)
 }
-func (m *mockHospitalService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
+func (m *mockHospitalService) Update(ctx context.Context, id string, data domain.HospitalPatch, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
 }
 func (m *mockHospitalService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
@@ -105,7 +105,7 @@ type mockWardService struct {
 	CreateFn  func(ctx context.Context, ward *domain.Ward, caller *domain.Actor) (*domain.Ward, error)
 	FindAllFn func(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error)
 	FindOneFn func(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error)
-	UpdateFn  func(ctx context.Context, id string, data map[string]any, caller *domain.Actor) (*domain.Ward, error)
+	UpdateFn  func(ctx context.Context, id string, data domain.WardPatch, caller *domain.Actor) (*domain.Ward, error)
 	RemoveFn  func(ctx context.Context, id string, caller *domain.Actor) (string, error)
 }
 
@@ -118,7 +118,7 @@ func (m *mockWardService) FindAll(ctx context.Context, caller *domain.Actor) ([]
 func (m *mockWardService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error) {
 	return m.FindOneFn(ctx, id, caller)
 }
-func (m *mockWardService) Update(ctx context.Context, id string, data map[string]any, caller *domain.Actor) (*domain.Ward, error) {
+func (m *mockWardService) Update(ctx context.Context, id string, data domain.WardPatch, caller *domain.Actor) (*domain.Ward, error) {
 	return m.UpdateFn(ctx, id, data, caller)
 }
 func (m *mockWardService) Remove(ctx context.Context, id string, caller *domain.Actor) (string, error) {
@@ -757,7 +757,7 @@ func TestUserHandler_FindOne_ForbiddenForOtherUser(t *testing.T) {
 func TestUserHandler_Update_ForbiddenForOtherUser(t *testing.T) {
 	called := false
 	svc := &mockUserService{
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.UserPatch, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			called = true
 			return &domain.User{}, nil
 		},
@@ -775,9 +775,9 @@ func TestUserHandler_Update_ForbiddenForOtherUser(t *testing.T) {
 }
 
 func TestUserHandler_Update_NonAdminCannotEscalateRole(t *testing.T) {
-	var received map[string]any
+	var received domain.UserPatch
 	svc := &mockUserService{
-		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, data domain.UserPatch, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			received = data
 			return &domain.User{ID: "U1"}, nil
 		},
@@ -793,16 +793,17 @@ func TestUserHandler_Update_NonAdminCannotEscalateRole(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	assert.NotContains(t, received, "role")
-	assert.NotContains(t, received, "status")
-	assert.NotContains(t, received, "wardId")
-	assert.Equal(t, "New Name", received["display"], "non-privileged fields still apply")
+	assert.Nil(t, received.Role)
+	assert.Nil(t, received.Status)
+	assert.Nil(t, received.WardID)
+	require.NotNil(t, received.Display, "non-privileged fields still apply")
+	assert.Equal(t, "New Name", *received.Display)
 }
 
 func TestUserHandler_Update_AdminKeepsPrivilegedFields(t *testing.T) {
-	var received map[string]any
+	var received domain.UserPatch
 	svc := &mockUserService{
-		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, data domain.UserPatch, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			received = data
 			return &domain.User{ID: "U2"}, nil
 		},
@@ -816,7 +817,8 @@ func TestUserHandler_Update_AdminKeepsPrivilegedFields(t *testing.T) {
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "USER", received["role"])
+	require.NotNil(t, received.Role)
+	assert.Equal(t, domain.RoleUser, *received.Role)
 }
 
 // ── Audit Handler Tests ────────────────────────────────────────────

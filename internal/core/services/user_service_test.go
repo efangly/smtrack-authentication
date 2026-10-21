@@ -115,7 +115,7 @@ func TestUserService_Create_RepoError(t *testing.T) {
 
 func TestUserService_FindAll_FromRepo(t *testing.T) {
 	repo := &mockUserRepo{
-		FindAllFn: func(_ context.Context, _ map[string]any, _ []map[string]any) ([]domain.User, error) {
+		FindAllFn: func(_ context.Context, _ ports.UserFilter) ([]domain.User, error) {
 			return []domain.User{{ID: "U1"}, {ID: "U2"}}, nil
 		},
 	}
@@ -129,7 +129,7 @@ func TestUserService_FindAll_FromRepo(t *testing.T) {
 
 func TestUserService_FindAll_RepoError(t *testing.T) {
 	repo := &mockUserRepo{
-		FindAllFn: func(_ context.Context, _ map[string]any, _ []map[string]any) ([]domain.User, error) {
+		FindAllFn: func(_ context.Context, _ ports.UserFilter) ([]domain.User, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -200,13 +200,13 @@ func TestUserService_FindByUsername_NotFound(t *testing.T) {
 func TestUserService_Update_Success(t *testing.T) {
 	repo := &mockUserRepo{
 		FindByIDFn: findUser(domain.RoleUser),
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.UserPatch) (*domain.User, error) {
 			return &domain.User{ID: "U1", Username: "updated"}, nil
 		},
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	user, err := svc.Update(context.Background(), "U1", map[string]any{"username": "updated"}, nil, superCaller)
+	user, err := svc.Update(context.Background(), "U1", domain.UserPatch{Username: ptr("updated")}, nil, superCaller)
 	require.NoError(t, err)
 	assert.Equal(t, "updated", user.Username)
 }
@@ -214,13 +214,13 @@ func TestUserService_Update_Success(t *testing.T) {
 func TestUserService_Update_RepoError(t *testing.T) {
 	repo := &mockUserRepo{
 		FindByIDFn: findUser(domain.RoleUser),
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.UserPatch) (*domain.User, error) {
 			return nil, errors.New("update failed")
 		},
 	}
 	svc, _, _ := newTestUserService(repo)
 
-	_, err := svc.Update(context.Background(), "U1", map[string]any{}, nil, superCaller)
+	_, err := svc.Update(context.Background(), "U1", domain.UserPatch{}, nil, superCaller)
 	assert.EqualError(t, err, "update failed")
 }
 
@@ -363,7 +363,7 @@ func TestUserService_Update_RoleCeilingOnTarget(t *testing.T) {
 				updated := false
 				repo := &mockUserRepo{
 					FindByIDFn: findUser(targetRole),
-					UpdateFn: func(_ context.Context, id string, _ map[string]any) (*domain.User, error) {
+					UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 						updated = true
 						return &domain.User{ID: id}, nil
 					},
@@ -371,7 +371,7 @@ func TestUserService_Update_RoleCeilingOnTarget(t *testing.T) {
 				svc, _, _ := newTestUserService(repo)
 				caller := &domain.Actor{ID: "C1", Role: callerRole, HosID: "H1"}
 
-				_, err := svc.Update(context.Background(), "OTHER", map[string]any{"display": "x"}, nil, caller)
+				_, err := svc.Update(context.Background(), "OTHER", domain.UserPatch{Display: ptr("x")}, nil, caller)
 				if canAssign(callerRole, targetRole) {
 					assert.NoError(t, err)
 					assert.True(t, updated)
@@ -392,14 +392,14 @@ func TestUserService_Update_RoleCeilingOnNewRole(t *testing.T) {
 				// act on, so only the requested new role decides the outcome.
 				repo := &mockUserRepo{
 					FindByIDFn: findUser(domain.RoleGuest),
-					UpdateFn: func(_ context.Context, id string, _ map[string]any) (*domain.User, error) {
+					UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 						return &domain.User{ID: id}, nil
 					},
 				}
 				svc, _, _ := newTestUserService(repo)
 				caller := &domain.Actor{ID: "C1", Role: callerRole, HosID: "H1"}
 
-				_, err := svc.Update(context.Background(), "OTHER", map[string]any{"role": string(newRole)}, nil, caller)
+				_, err := svc.Update(context.Background(), "OTHER", domain.UserPatch{Role: ptr(newRole)}, nil, caller)
 				switch {
 				case !canAssign(callerRole, domain.RoleGuest):
 					assert.EqualError(t, err, deniedChange(callerRole))
@@ -416,7 +416,7 @@ func TestUserService_Update_RoleCeilingOnNewRole(t *testing.T) {
 func TestUserService_Update_CannotChangeOwnRole(t *testing.T) {
 	repo := &mockUserRepo{
 		FindByIDFn: findUser(domain.RoleAdmin),
-		UpdateFn: func(_ context.Context, id string, _ map[string]any) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 			t.Fatal("repo.Update must not be reached")
 			return nil, nil
 		},
@@ -424,13 +424,13 @@ func TestUserService_Update_CannotChangeOwnRole(t *testing.T) {
 	svc, _, _ := newTestUserService(repo)
 	self := &domain.Actor{ID: "A1", Role: domain.RoleAdmin}
 
-	_, err := svc.Update(context.Background(), "A1", map[string]any{"role": "SUPER"}, nil, self)
+	_, err := svc.Update(context.Background(), "A1", domain.UserPatch{Role: ptr(domain.RoleSuper)}, nil, self)
 	assert.EqualError(t, err, "you cannot change your own role")
 
 	// Even SUPER cannot change its own role.
 	repo.FindByIDFn = findUser(domain.RoleSuper)
 	super := &domain.Actor{ID: "S1", Role: domain.RoleSuper}
-	_, err = svc.Update(context.Background(), "S1", map[string]any{"role": "GUEST"}, nil, super)
+	_, err = svc.Update(context.Background(), "S1", domain.UserPatch{Role: ptr(domain.RoleGuest)}, nil, super)
 	assert.EqualError(t, err, "you cannot change your own role")
 }
 
@@ -438,28 +438,28 @@ func TestUserService_Update_UnchangedOwnRoleIsAllowed(t *testing.T) {
 	// A profile form that resubmits the caller's current role must not fail.
 	repo := &mockUserRepo{
 		FindByIDFn: findUser(domain.RoleAdmin),
-		UpdateFn: func(_ context.Context, id string, _ map[string]any) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 			return &domain.User{ID: id}, nil
 		},
 	}
 	svc, _, _ := newTestUserService(repo)
 	self := &domain.Actor{ID: "A1", Role: domain.RoleAdmin}
 
-	_, err := svc.Update(context.Background(), "A1", map[string]any{"role": "ADMIN", "display": "me"}, nil, self)
+	_, err := svc.Update(context.Background(), "A1", domain.UserPatch{Role: ptr(domain.RoleAdmin), Display: ptr("me")}, nil, self)
 	assert.NoError(t, err)
 }
 
 func TestUserService_Update_SelfEditAllowedForAnyRole(t *testing.T) {
 	repo := &mockUserRepo{
 		FindByIDFn: findUser(domain.RoleGuest),
-		UpdateFn: func(_ context.Context, id string, _ map[string]any) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 			return &domain.User{ID: id}, nil
 		},
 	}
 	svc, _, _ := newTestUserService(repo)
 	self := &domain.Actor{ID: "G1", Role: domain.RoleGuest}
 
-	_, err := svc.Update(context.Background(), "G1", map[string]any{"display": "me"}, nil, self)
+	_, err := svc.Update(context.Background(), "G1", domain.UserPatch{Display: ptr("me")}, nil, self)
 	assert.NoError(t, err)
 }
 
@@ -467,7 +467,7 @@ func TestUserService_UpdateAndRemove_RequireCaller(t *testing.T) {
 	repo := &mockUserRepo{FindByIDFn: findUser(domain.RoleGuest)}
 	svc, _, _ := newTestUserService(repo)
 
-	_, err := svc.Update(context.Background(), "U1", map[string]any{}, nil, nil)
+	_, err := svc.Update(context.Background(), "U1", domain.UserPatch{}, nil, nil)
 	assert.EqualError(t, err, "unauthorized")
 	_, err = svc.Remove(context.Background(), "U1", nil)
 	assert.EqualError(t, err, "unauthorized")
@@ -503,32 +503,25 @@ func TestUserService_Remove_RoleCeilingOnTarget(t *testing.T) {
 
 // --- buildUserConditions ---
 
-func TestBuildUserConditions(t *testing.T) {
+func TestBuildUserFilter(t *testing.T) {
+	dev := []string{developmentHosID}
 	tests := []struct {
-		name           string
-		role           domain.Role
-		hosID          string
-		expectConds    bool
-		expectNotConds int
-		expectKey      string
+		role       domain.Role
+		hosID      string
+		wantFilter ports.UserFilter
+		wantKey    string
 	}{
-		{"SUPER", "SUPER", "", false, 0, "user"},
-		{"ADMIN", "ADMIN", "H1", true, 2, "user:H1"},
-		{"LEGACY_ADMIN", "LEGACY_ADMIN", "H2", true, 1, "user:H2"},
-		{"SERVICE", "SERVICE", "", false, 1, "user:HID-DEVELOPMENT"},
-		{"USER default", "USER", "", false, 0, "user"},
+		{domain.RoleSuper, "", ports.UserFilter{}, "user"},
+		{domain.RoleAdmin, "H1", ports.UserFilter{HosID: "H1", ExcludeHosIDs: dev, ExcludeRoles: []domain.Role{domain.RoleService}}, "user:H1"},
+		{domain.RoleLegacyAdmin, "H2", ports.UserFilter{HosID: "H2", ExcludeHosIDs: dev}, "user:H2"},
+		{domain.RoleService, "", ports.UserFilter{ExcludeHosIDs: dev}, "user:HID-DEVELOPMENT"},
+		{domain.RoleUser, "", ports.UserFilter{}, "user"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			caller := &domain.Actor{Role: tt.role, HosID: tt.hosID}
-			conds, notConds, key := buildUserConditions(caller)
-			if tt.expectConds {
-				assert.NotNil(t, conds)
-			} else {
-				assert.Nil(t, conds)
-			}
-			assert.Len(t, notConds, tt.expectNotConds)
-			assert.Equal(t, tt.expectKey, key)
+		t.Run(string(tt.role), func(t *testing.T) {
+			filter, key := buildUserFilter(&domain.Actor{Role: tt.role, HosID: tt.hosID})
+			assert.Equal(t, tt.wantFilter, filter)
+			assert.Equal(t, tt.wantKey, key)
 		})
 	}
 }

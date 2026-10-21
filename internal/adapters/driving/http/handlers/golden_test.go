@@ -165,7 +165,7 @@ func goldenCases() []goldenCase {
 		CreateFn:  func(_ context.Context, _ *domain.User, _ *domain.Actor) (*domain.User, error) { return user, nil },
 		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.User, error) { return userList, nil },
 		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.UserPatch, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			return user, nil
 		},
 		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
@@ -185,7 +185,7 @@ func goldenCases() []goldenCase {
 			return []domain.Hospital{*goldenHospital()}, nil
 		},
 		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.Hospital, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.HospitalPatch, _ *domain.File, _ *domain.Actor) (*domain.Hospital, error) {
 			return hospital, nil
 		},
 		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },
@@ -197,7 +197,7 @@ func goldenCases() []goldenCase {
 			return []domain.Ward{*goldenWard()}, nil
 		},
 		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Ward, error) { return ward, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.Actor) (*domain.Ward, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.WardPatch, _ *domain.Actor) (*domain.Ward, error) {
 			return ward, nil
 		},
 		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (string, error) {

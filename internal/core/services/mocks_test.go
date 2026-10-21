@@ -11,18 +11,18 @@ import (
 // --- Mock UserRepository ---
 type mockUserRepo struct {
 	CreateFn         func(ctx context.Context, user *domain.User) (*domain.User, error)
-	FindAllFn        func(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.User, error)
+	FindAllFn        func(ctx context.Context, filter ports.UserFilter) ([]domain.User, error)
 	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
-	UpdateFn         func(ctx context.Context, id string, data map[string]any) (*domain.User, error)
+	UpdateFn         func(ctx context.Context, id string, data domain.UserPatch) (*domain.User, error)
 	DeleteFn         func(ctx context.Context, id string) (*domain.User, error)
 }
 
 func (m *mockUserRepo) Create(ctx context.Context, user *domain.User) (*domain.User, error) {
 	return m.CreateFn(ctx, user)
 }
-func (m *mockUserRepo) FindAll(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.User, error) {
-	return m.FindAllFn(ctx, conditions, notConditions)
+func (m *mockUserRepo) FindAll(ctx context.Context, filter ports.UserFilter) ([]domain.User, error) {
+	return m.FindAllFn(ctx, filter)
 }
 func (m *mockUserRepo) FindByID(ctx context.Context, id string) (*domain.User, error) {
 	return m.FindByIDFn(ctx, id)
@@ -30,7 +30,7 @@ func (m *mockUserRepo) FindByID(ctx context.Context, id string) (*domain.User, e
 func (m *mockUserRepo) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
-func (m *mockUserRepo) Update(ctx context.Context, id string, data map[string]any) (*domain.User, error) {
+func (m *mockUserRepo) Update(ctx context.Context, id string, data domain.UserPatch) (*domain.User, error) {
 	return m.UpdateFn(ctx, id, data)
 }
 func (m *mockUserRepo) Delete(ctx context.Context, id string) (*domain.User, error) {
@@ -40,22 +40,22 @@ func (m *mockUserRepo) Delete(ctx context.Context, id string) (*domain.User, err
 // --- Mock WardRepository ---
 type mockWardRepo struct {
 	CreateFn   func(ctx context.Context, ward *domain.Ward) (*domain.Ward, error)
-	FindAllFn  func(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.Ward, error)
+	FindAllFn  func(ctx context.Context, filter ports.WardFilter) ([]domain.Ward, error)
 	FindByIDFn func(ctx context.Context, id string) (*domain.Ward, error)
-	UpdateFn   func(ctx context.Context, id string, data map[string]any) (*domain.Ward, error)
+	UpdateFn   func(ctx context.Context, id string, data domain.WardPatch) (*domain.Ward, error)
 	DeleteFn   func(ctx context.Context, id string) error
 }
 
 func (m *mockWardRepo) Create(ctx context.Context, ward *domain.Ward) (*domain.Ward, error) {
 	return m.CreateFn(ctx, ward)
 }
-func (m *mockWardRepo) FindAll(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.Ward, error) {
-	return m.FindAllFn(ctx, conditions, notConditions)
+func (m *mockWardRepo) FindAll(ctx context.Context, filter ports.WardFilter) ([]domain.Ward, error) {
+	return m.FindAllFn(ctx, filter)
 }
 func (m *mockWardRepo) FindByID(ctx context.Context, id string) (*domain.Ward, error) {
 	return m.FindByIDFn(ctx, id)
 }
-func (m *mockWardRepo) Update(ctx context.Context, id string, data map[string]any) (*domain.Ward, error) {
+func (m *mockWardRepo) Update(ctx context.Context, id string, data domain.WardPatch) (*domain.Ward, error) {
 	return m.UpdateFn(ctx, id, data)
 }
 func (m *mockWardRepo) Delete(ctx context.Context, id string) error {
@@ -65,22 +65,22 @@ func (m *mockWardRepo) Delete(ctx context.Context, id string) error {
 // --- Mock HospitalRepository ---
 type mockHospitalRepo struct {
 	CreateFn   func(ctx context.Context, hospital *domain.Hospital) (*domain.Hospital, error)
-	FindAllFn  func(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.Hospital, error)
+	FindAllFn  func(ctx context.Context, filter ports.HospitalFilter) ([]domain.Hospital, error)
 	FindByIDFn func(ctx context.Context, id string) (*domain.Hospital, error)
-	UpdateFn   func(ctx context.Context, id string, data map[string]any) (*domain.Hospital, error)
+	UpdateFn   func(ctx context.Context, id string, data domain.HospitalPatch) (*domain.Hospital, error)
 	DeleteFn   func(ctx context.Context, id string) (*domain.Hospital, error)
 }
 
 func (m *mockHospitalRepo) Create(ctx context.Context, hospital *domain.Hospital) (*domain.Hospital, error) {
 	return m.CreateFn(ctx, hospital)
 }
-func (m *mockHospitalRepo) FindAll(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.Hospital, error) {
-	return m.FindAllFn(ctx, conditions, notConditions)
+func (m *mockHospitalRepo) FindAll(ctx context.Context, filter ports.HospitalFilter) ([]domain.Hospital, error) {
+	return m.FindAllFn(ctx, filter)
 }
 func (m *mockHospitalRepo) FindByID(ctx context.Context, id string) (*domain.Hospital, error) {
 	return m.FindByIDFn(ctx, id)
 }
-func (m *mockHospitalRepo) Update(ctx context.Context, id string, data map[string]any) (*domain.Hospital, error) {
+func (m *mockHospitalRepo) Update(ctx context.Context, id string, data domain.HospitalPatch) (*domain.Hospital, error) {
 	return m.UpdateFn(ctx, id, data)
 }
 func (m *mockHospitalRepo) Delete(ctx context.Context, id string) (*domain.Hospital, error) {
@@ -171,7 +171,7 @@ type mockUserService struct {
 	FindOneFn        func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
-	UpdateFn         func(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error)
+	UpdateFn         func(ctx context.Context, id string, data domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 }
 
@@ -190,7 +190,7 @@ func (m *mockUserService) FindByID(ctx context.Context, id string) (*domain.User
 func (m *mockUserService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
-func (m *mockUserService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error) {
+func (m *mockUserService) Update(ctx context.Context, id string, data domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
 }
 func (m *mockUserService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
@@ -264,3 +264,5 @@ func (f *fakeTokens) VerifyAccess(string) (*domain.Actor, error) {
 func (f *fakeTokens) VerifyRefresh(string) (string, error) {
 	return f.refreshUserID, f.refreshErr
 }
+
+func ptr[T any](v T) *T { return &v }

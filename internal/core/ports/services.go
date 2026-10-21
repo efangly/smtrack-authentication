@@ -47,7 +47,7 @@ type UserService interface {
 	// user matches. Never expose them to a request directly.
 	FindByID(ctx context.Context, id string) (*domain.User, error)
 	FindByUsername(ctx context.Context, username string) (*domain.User, error)
-	Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error)
+	Update(ctx context.Context, id string, patch domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
 }
 
@@ -56,7 +56,7 @@ type HospitalService interface {
 	Create(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error)
 	FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
-	Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
+	Update(ctx context.Context, id string, patch domain.HospitalPatch, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
 	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
 }
 
@@ -65,7 +65,7 @@ type WardService interface {
 	Create(ctx context.Context, ward *domain.Ward, caller *domain.Actor) (*domain.Ward, error)
 	FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error)
 	FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error)
-	Update(ctx context.Context, id string, data map[string]any, caller *domain.Actor) (*domain.Ward, error)
+	Update(ctx context.Context, id string, patch domain.WardPatch, caller *domain.Actor) (*domain.Ward, error)
 	Remove(ctx context.Context, id string, caller *domain.Actor) (string, error)
 }
 

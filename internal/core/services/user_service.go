@@ -81,7 +81,7 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *dom
 }
 
 func (s *userService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.User, error) {
-	conditions, notConditions, key := buildUserConditions(caller)
+	filter, key := buildUserFilter(caller)
 
 	// Check cache
 	cached, err := s.cache.Get(ctx, key)
@@ -92,7 +92,7 @@ func (s *userService) FindAll(ctx context.Context, caller *domain.Actor) ([]doma
 		}
 	}
 
-	users, err := s.repo.FindAll(ctx, conditions, notConditions)
+	users, err := s.repo.FindAll(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -163,22 +163,20 @@ func (s *userService) FindByUsername(ctx context.Context, username string) (*dom
 	return user, nil
 }
 
-func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.User, error) {
+func (s *userService) Update(ctx context.Context, id string, patch domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error) {
 	target, err := s.authorizeChange(ctx, id, caller)
 	if err != nil {
 		return nil, err
 	}
 
-	if raw, ok := data["wardId"]; ok {
-		if wardID, _ := raw.(string); wardID != target.WardID {
-			if err := s.checkWardInScope(ctx, caller, wardID); err != nil {
-				return nil, err
-			}
+	if patch.WardID != nil && *patch.WardID != target.WardID {
+		if err := s.checkWardInScope(ctx, caller, *patch.WardID); err != nil {
+			return nil, err
 		}
 	}
 
-	if raw, ok := data["role"]; ok {
-		role := toRole(raw)
+	if patch.Role != nil {
+		role := *patch.Role
 		if role != target.Role {
 			if caller.ID == id {
 				return nil, errors.New("you cannot change your own role")
@@ -194,7 +192,7 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 		if err != nil {
 			return nil, fmt.Errorf("image upload failed: %w", err)
 		}
-		data["pic"] = picURL
+		patch.Pic = &picURL
 
 		// Delete old image
 		if target.Pic != nil {
@@ -208,21 +206,18 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 
 	// A password must never reach the database in plain text. This is the single
 	// place that hashes on update, so callers pass the plain value.
-	if raw, ok := data["password"]; ok {
-		plain, ok := raw.(string)
-		if !ok || plain == "" {
+	if patch.Password != nil {
+		if *patch.Password == "" {
 			return nil, errors.New("invalid password")
 		}
-		hashed, err := s.hasher.Hash(plain)
+		hashed, err := s.hasher.Hash(*patch.Password)
 		if err != nil {
 			return nil, err
 		}
-		data["password"] = hashed
+		patch.Password = &hashed
 	}
 
-	data["updateAt"] = time.Now()
-
-	updatedUser, err := s.repo.Update(ctx, id, data)
+	updatedUser, err := s.repo.Update(ctx, id, patch)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +229,7 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 		s.cache.Del(ctx, fmt.Sprintf("user:%s", updatedUser.Username))
 	}
 
-	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionUpdate, id, caller, data)
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionUpdate, id, caller, userPatchChanges(patch))
 	return updatedUser, nil
 }
 
@@ -315,47 +310,22 @@ func (s *userService) checkWardInScope(ctx context.Context, caller *domain.Actor
 	return nil
 }
 
-// toRole reads a role out of a partial-update map, where it may arrive as a
-// plain string (from the DTO) or already as a domain.Role.
-func toRole(v any) domain.Role {
-	switch r := v.(type) {
-	case domain.Role:
-		return r
-	case string:
-		return domain.Role(r)
-	}
-	return ""
-}
-
-func buildUserConditions(caller *domain.Actor) (map[string]any, []map[string]any, string) {
-	var conditions map[string]any
-	var notConditions []map[string]any
-	var key string
-
+// buildUserFilter is the user listing each role may see, and its cache key.
+func buildUserFilter(caller *domain.Actor) (ports.UserFilter, string) {
 	switch caller.Role {
 	case domain.RoleAdmin:
-		conditions = map[string]any{"hosId": caller.HosID}
-		notConditions = []map[string]any{
-			{"hosId": "HID-DEVELOPMENT"},
-			{"role": "SERVICE"},
-		}
-		key = fmt.Sprintf("user:%s", caller.HosID)
+		return ports.UserFilter{
+			HosID:         caller.HosID,
+			ExcludeHosIDs: []string{developmentHosID},
+			ExcludeRoles:  []domain.Role{domain.RoleService},
+		}, fmt.Sprintf("user:%s", caller.HosID)
 	case domain.RoleLegacyAdmin:
-		conditions = map[string]any{"hosId": caller.HosID}
-		notConditions = []map[string]any{
-			{"hosId": "HID-DEVELOPMENT"},
-		}
-		key = fmt.Sprintf("user:%s", caller.HosID)
+		return ports.UserFilter{
+			HosID:         caller.HosID,
+			ExcludeHosIDs: []string{developmentHosID},
+		}, fmt.Sprintf("user:%s", caller.HosID)
 	case domain.RoleService:
-		notConditions = []map[string]any{
-			{"hosId": "HID-DEVELOPMENT"},
-		}
-		key = "user:HID-DEVELOPMENT"
-	case domain.RoleSuper:
-		key = "user"
-	default:
-		key = "user"
+		return ports.UserFilter{ExcludeHosIDs: []string{developmentHosID}}, "user:" + developmentHosID
 	}
-
-	return conditions, notConditions, key
+	return ports.UserFilter{}, "user"
 }

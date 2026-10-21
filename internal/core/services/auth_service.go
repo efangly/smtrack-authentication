@@ -152,9 +152,7 @@ func (s *authService) ResetPassword(ctx context.Context, username string, passwo
 	}
 
 	// userService.Update hashes the password before it reaches the database.
-	_, err = s.userService.Update(ctx, user.ID, map[string]any{
-		"password": password,
-	}, nil, caller)
+	_, err = s.userService.Update(ctx, user.ID, domain.UserPatch{Password: &password}, nil, caller)
 	if err != nil {
 		return "", err
 	}

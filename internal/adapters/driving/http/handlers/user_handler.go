@@ -85,16 +85,14 @@ func (h *UserHandler) Update(c fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(dto.FailResponse("Unauthorized"))
 	}
 
-	data := req.ToMap()
+	patch := req.ToPatch()
 	if !caller.IsAdminTier() {
 		if caller.ID != id {
 			return c.Status(fiber.StatusForbidden).JSON(dto.FailResponse("You can only update your own account"))
 		}
 		// A non-admin must not be able to grant itself a role, reactivate a
 		// disabled account, or move itself into another ward.
-		delete(data, "role")
-		delete(data, "status")
-		delete(data, "wardId")
+		patch.Role, patch.Status, patch.WardID = nil, nil, nil
 	}
 
 	file, err := formFile(c, "image")
@@ -102,7 +100,7 @@ func (h *UserHandler) Update(c fiber.Ctx) error {
 		return uploadError(c, err)
 	}
 
-	result, err := h.userService.Update(c.Context(), id, data, file, caller)
+	result, err := h.userService.Update(c.Context(), id, patch, file, caller)
 	if err != nil {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}

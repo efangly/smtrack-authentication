@@ -51,10 +51,15 @@ method → handler → route in `router.go`.
 
 - **Database columns are camelCase and quoted.** The schema comes from a Prisma-era
   service, so raw GORM conditions must quote identifiers: `Where("\"hosId\" = ?", id)`.
-  Timestamp columns are `createAt` / `updateAt` (no "d") — partial-update maps must use
-  those exact keys.
-- **Partial updates** flow as `map[string]any` built by a DTO `ToMap()` method, never as
-  a struct, so that unset fields are not zeroed.
+  Timestamp columns are `createAt` / `updateAt` (no "d"). Column names appear only in
+  `adapters/driven/database` — the core never sees them.
+- **Partial updates** flow as a `domain.*Patch` (pointer fields; nil = unchanged) built by
+  a DTO `ToPatch()` method. The repository turns it into a column map in
+  `database/columns.go` and stamps `updateAt` itself. Audit entries record the patch via
+  `services/audit_changes.go`, which never includes a password.
+- **Listings are narrowed by `ports.*Filter`** structs built in `build*Filter`. A
+  `UserFilter` hospital condition always joins `Wards` (it applies through the user's
+  ward); `database/query_sql_test.go` checks the generated SQL with GORM's DryRun.
 - **Cache keys** are prefixes: `user`, `user:<id>`, `user:<hosId>`, `ward…`, `hospital…`.
   `CachePort.Del` deletes by *prefix* (SCAN-based), so `Del(ctx, "user")` clears every
   user key. Anything that changes a ward or hospital must also invalidate `user`, because
@@ -114,6 +119,9 @@ These were bugs once. Do not regress them.
 - **Refresh rebuilds claims from the database** (`authService.RefreshTokens`), never by
   copying the old token's claims, so a demoted or deactivated user loses access at the next
   refresh instead of keeping it for the token's remaining lifetime.
+- **`pic` / `hosPic` cannot be set from a request body**, only by uploading an image.
+  Accepting a URL let a user point their record at someone else's file, which the next
+  upload then deleted from the image service.
 - **Uploads go through `handlers.formFile`.** It caps the image at `maxImageBytes`, sniffs
   the type from the bytes (JPEG/PNG/WebP only — the client's `Content-Type` is ignored) and
   hands the core a `domain.File`. The upload adapter escapes the client filename with

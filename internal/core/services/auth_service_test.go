@@ -226,7 +226,7 @@ func TestAuthService_ResetPassword_SuperRole(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return &domain.User{ID: "U1", Username: "user1", Password: hashed}, nil
 		},
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.UserPatch, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			updated = true
 			return &domain.User{ID: "U1"}, nil
 		},
@@ -341,7 +341,7 @@ func TestAuthService_ResetPassword_OwnAccountAllowed(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return &domain.User{ID: "U1", Password: hashed}, nil
 		},
-		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, data domain.UserPatch, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			return &domain.User{ID: "U1"}, nil
 		},
 	}

@@ -38,20 +38,12 @@ type UpdateWardRequest struct {
 	HosID    *string          `json:"hosId,omitempty"`
 }
 
-// ToMap converts the update DTO to a map for partial update
-func (r *UpdateWardRequest) ToMap() map[string]any {
-	data := make(map[string]any)
-	if r.WardName != nil {
-		data["wardName"] = *r.WardName
+// ToPatch converts the update DTO to a partial update; unset fields stay nil.
+func (r *UpdateWardRequest) ToPatch() domain.WardPatch {
+	return domain.WardPatch{
+		WardName: r.WardName,
+		WardSeq:  r.WardSeq,
+		Type:     r.Type,
+		HosID:    r.HosID,
 	}
-	if r.WardSeq != nil {
-		data["wardSeq"] = *r.WardSeq
-	}
-	if r.Type != nil {
-		data["type"] = string(*r.Type)
-	}
-	if r.HosID != nil {
-		data["hosId"] = *r.HosID
-	}
-	return data
 }

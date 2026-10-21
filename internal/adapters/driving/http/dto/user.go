@@ -11,7 +11,6 @@ type CreateUserRequest struct {
 	Status   *bool       `json:"status,omitempty"`
 	Role     domain.Role `json:"role,omitempty"`
 	Display  *string     `json:"display,omitempty" validate:"omitempty,min=1,max=50"`
-	Pic      *string     `json:"pic,omitempty" validate:"omitempty,max=255"`
 	Comment  *string     `json:"comment,omitempty" validate:"omitempty,max=255"`
 	CreateBy *string     `json:"createBy,omitempty" validate:"omitempty,max=50"`
 }
@@ -25,7 +24,6 @@ func (r *CreateUserRequest) ToUser() *domain.User {
 		Password: r.Password,
 		Role:     r.Role,
 		Display:  r.Display,
-		Pic:      r.Pic,
 		Comment:  r.Comment,
 		CreateBy: r.CreateBy,
 	}
@@ -51,10 +49,14 @@ func (r *CreateUserRequest) ToPublicUser() *domain.User {
 		Role:     domain.RoleGuest,
 		Status:   true,
 		Display:  r.Display,
-		Pic:      r.Pic,
 		Comment:  r.Comment,
 	}
 }
+
+// The picture is not settable from a request body: it is only ever the URL
+// the upload service returned for an uploaded "image" file. Accepting a URL
+// here let a user point their record at someone else's file, which the next
+// upload then deleted.
 
 // UpdateUserRequest represents the update user request body.
 // Password is intentionally absent: it would be written to the database
@@ -65,33 +67,17 @@ type UpdateUserRequest struct {
 	Status   *bool        `json:"status,omitempty"`
 	Role     *domain.Role `json:"role,omitempty"`
 	Display  *string      `json:"display,omitempty"`
-	Pic      *string      `json:"pic,omitempty"`
 	Comment  *string      `json:"comment,omitempty"`
 }
 
-// ToMap converts the update DTO to a map for partial update
-func (r *UpdateUserRequest) ToMap() map[string]any {
-	data := make(map[string]any)
-	if r.WardID != nil {
-		data["wardId"] = *r.WardID
+// ToPatch converts the update DTO to a partial update; unset fields stay nil.
+func (r *UpdateUserRequest) ToPatch() domain.UserPatch {
+	return domain.UserPatch{
+		WardID:   r.WardID,
+		Username: r.Username,
+		Status:   r.Status,
+		Role:     r.Role,
+		Display:  r.Display,
+		Comment:  r.Comment,
 	}
-	if r.Username != nil {
-		data["username"] = *r.Username
-	}
-	if r.Status != nil {
-		data["status"] = *r.Status
-	}
-	if r.Role != nil {
-		data["role"] = string(*r.Role)
-	}
-	if r.Display != nil {
-		data["display"] = *r.Display
-	}
-	if r.Pic != nil {
-		data["pic"] = *r.Pic
-	}
-	if r.Comment != nil {
-		data["comment"] = *r.Comment
-	}
-	return data
 }

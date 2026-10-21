@@ -1,10 +1,12 @@
 package dto
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateUserRequest_ToUser(t *testing.T) {
@@ -38,28 +40,14 @@ func TestCreateUserRequest_ToUser(t *testing.T) {
 	})
 }
 
-func TestUpdateUserRequest_ToMap(t *testing.T) {
-	t.Run("empty request yields empty map", func(t *testing.T) {
-		req := UpdateUserRequest{}
-		m := req.ToMap()
-		assert.Empty(t, m)
-	})
+func TestUpdateUserRequest_ToPatch(t *testing.T) {
+	assert.Equal(t, domain.UserPatch{}, (&UpdateUserRequest{}).ToPatch())
 
-	t.Run("only set fields appear in map", func(t *testing.T) {
-		username := "newuser"
-		status := true
-		role := domain.RoleUser
-		req := UpdateUserRequest{
-			Username: &username,
-			Status:   &status,
-			Role:     &role,
-		}
-		m := req.ToMap()
-		assert.Len(t, m, 3)
-		assert.Equal(t, "newuser", m["username"])
-		assert.Equal(t, true, m["status"])
-		assert.Equal(t, "USER", m["role"])
-	})
+	username := "newuser"
+	status := true
+	role := domain.RoleUser
+	patch := (&UpdateUserRequest{Username: &username, Status: &status, Role: &role}).ToPatch()
+	assert.Equal(t, domain.UserPatch{Username: &username, Status: &status, Role: &role}, patch)
 }
 
 func TestCreateHospitalRequest_ToHospital(t *testing.T) {
@@ -77,12 +65,9 @@ func TestCreateHospitalRequest_ToHospital(t *testing.T) {
 	})
 }
 
-func TestUpdateHospitalRequest_ToMap(t *testing.T) {
+func TestUpdateHospitalRequest_ToPatch(t *testing.T) {
 	name := "Updated Hospital"
-	req := UpdateHospitalRequest{HosName: &name}
-	m := req.ToMap()
-	assert.Len(t, m, 1)
-	assert.Equal(t, "Updated Hospital", m["hosName"])
+	assert.Equal(t, domain.HospitalPatch{HosName: &name}, (&UpdateHospitalRequest{HosName: &name}).ToPatch())
 }
 
 func TestCreateWardRequest_ToWard(t *testing.T) {
@@ -110,14 +95,11 @@ func TestCreateWardRequest_ToWard(t *testing.T) {
 	})
 }
 
-func TestUpdateWardRequest_ToMap(t *testing.T) {
+func TestUpdateWardRequest_ToPatch(t *testing.T) {
 	name := "Updated Ward"
 	hosID := "H2"
-	req := UpdateWardRequest{WardName: &name, HosID: &hosID}
-	m := req.ToMap()
-	assert.Equal(t, "Updated Ward", m["wardName"])
-	assert.Equal(t, "H2", m["hosId"])
-	assert.Len(t, m, 2)
+	assert.Equal(t, domain.WardPatch{WardName: &name, HosID: &hosID},
+		(&UpdateWardRequest{WardName: &name, HosID: &hosID}).ToPatch())
 }
 
 func TestSuccessResponse(t *testing.T) {
@@ -156,11 +138,33 @@ func TestCreateUserRequest_ToPublicUser_ForcesGuestRole(t *testing.T) {
 	assert.Equal(t, "W1", user.WardID)
 }
 
-func TestUpdateUserRequest_ToMap_HasNoPassword(t *testing.T) {
-	username := "bob"
-	req := &UpdateUserRequest{Username: &username}
-	data := req.ToMap()
+func TestUpdateUserRequest_HasNoPassword(t *testing.T) {
+	// Password changes go through /auth/reset; a body field must not reach the patch.
+	var req UpdateUserRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"username":"bob","password":"x"}`), &req))
+	patch := req.ToPatch()
+	assert.Nil(t, patch.Password)
+	assert.Equal(t, "bob", *patch.Username)
+}
 
-	assert.NotContains(t, data, "password", "password changes go through /auth/reset")
-	assert.Equal(t, "bob", data["username"])
+// pic / hosPic are set only by uploading an image. A URL in the body is ignored,
+// so a user cannot point their record at someone else's file (which the next
+// upload would then delete).
+func TestPictureIsNotSettableFromBody(t *testing.T) {
+	var upd UpdateUserRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"pic":"http://img/user/victim.png"}`), &upd))
+	assert.Nil(t, upd.ToPatch().Pic)
+
+	var create CreateUserRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"wardId":"W1","username":"u","password":"pass","pic":"http://img/user/victim.png"}`), &create))
+	assert.Nil(t, create.ToUser().Pic)
+	assert.Nil(t, create.ToPublicUser().Pic)
+
+	var hosUpd UpdateHospitalRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"hosPic":"http://img/hospital/victim.png"}`), &hosUpd))
+	assert.Nil(t, hosUpd.ToPatch().HosPic)
+
+	var hosCreate CreateHospitalRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"hosName":"H","hosPic":"http://img/hospital/victim.png"}`), &hosCreate))
+	assert.Nil(t, hosCreate.ToHospital().HosPic)
 }

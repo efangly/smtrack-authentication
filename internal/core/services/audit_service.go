@@ -55,8 +55,9 @@ func (s *auditService) FindAll(ctx context.Context, filter ports.AuditFilter) ([
 
 // sanitizeAuditChanges strips a "password" key before changes is persisted.
 // A domain entity's Password field already carries json:"-" so a struct
-// (the Create/Delete case) is safe as-is; a raw partial-update map (the
-// Update case) is not guaranteed to be, so it is scrubbed explicitly.
+// (the Create/Delete case) is safe as-is, and the *PatchChanges maps of the
+// Update case never contain one. This stays as a second line of defence for
+// any future caller that passes a map of its own.
 func sanitizeAuditChanges(changes any) any {
 	m, ok := changes.(map[string]any)
 	if !ok {

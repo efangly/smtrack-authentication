@@ -84,7 +84,7 @@ func (h *HospitalHandler) Update(c fiber.Ctx) error {
 	}
 	caller := getCaller(c)
 
-	result, err := h.hospitalService.Update(c.Context(), id, req.ToMap(), file, caller)
+	result, err := h.hospitalService.Update(c.Context(), id, req.ToPatch(), file, caller)
 	if err != nil {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}

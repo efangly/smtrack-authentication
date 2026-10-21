@@ -78,7 +78,7 @@ func TestHospitalService_Create_RepoError(t *testing.T) {
 
 func TestHospitalService_FindAll_Success(t *testing.T) {
 	repo := &mockHospitalRepo{
-		FindAllFn: func(_ context.Context, _ map[string]any, _ []map[string]any) ([]domain.Hospital, error) {
+		FindAllFn: func(_ context.Context, _ ports.HospitalFilter) ([]domain.Hospital, error) {
 			return []domain.Hospital{{ID: "H1"}, {ID: "H2"}}, nil
 		},
 	}
@@ -91,7 +91,7 @@ func TestHospitalService_FindAll_Success(t *testing.T) {
 
 func TestHospitalService_FindAll_RepoError(t *testing.T) {
 	repo := &mockHospitalRepo{
-		FindAllFn: func(_ context.Context, _ map[string]any, _ []map[string]any) ([]domain.Hospital, error) {
+		FindAllFn: func(_ context.Context, _ ports.HospitalFilter) ([]domain.Hospital, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -134,7 +134,7 @@ func TestHospitalService_Update_Success(t *testing.T) {
 	deviceCalled := false
 	legacyCalled := false
 	repo := &mockHospitalRepo{
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any) (*domain.Hospital, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.HospitalPatch) (*domain.Hospital, error) {
 			return &domain.Hospital{ID: "H1", HosName: "Updated"}, nil
 		},
 	}
@@ -142,7 +142,7 @@ func TestHospitalService_Update_Success(t *testing.T) {
 	msg.SendToDeviceFn = func(string, any) error { deviceCalled = true; return nil }
 	msg.SendToLegacyFn = func(string, any) error { legacyCalled = true; return nil }
 
-	h, err := svc.Update(context.Background(), "H1", map[string]any{"hosName": "Updated"}, nil, nil)
+	h, err := svc.Update(context.Background(), "H1", domain.HospitalPatch{HosName: ptr("Updated")}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", h.HosName)
 	assert.True(t, deviceCalled)
@@ -200,32 +200,26 @@ func TestHospitalService_Remove_WithPic(t *testing.T) {
 
 // --- buildHospitalConditions ---
 
-func TestBuildHospitalConditions(t *testing.T) {
+func TestBuildHospitalFilter(t *testing.T) {
+	dev := []string{developmentHosID}
 	tests := []struct {
-		name           string
-		role           domain.Role
-		hosID          string
-		expectConds    bool
-		expectNotConds int
-		expectKey      string
+		name       string
+		caller     domain.Actor
+		wantFilter ports.HospitalFilter
+		wantKey    string
 	}{
-		{"SUPER", "SUPER", "", false, 0, "hospital"},
-		{"ADMIN", "ADMIN", "H1", true, 1, "hospital:H1"},
-		{"LEGACY_ADMIN", "LEGACY_ADMIN", "H2", true, 1, "hospital:H2"},
-		{"SERVICE", "SERVICE", "", false, 1, "hospital:HID-DEVELOPMENT"},
-		{"USER default", "USER", "", false, 0, "hospital"},
+		{"SUPER", domain.Actor{Role: domain.RoleSuper}, ports.HospitalFilter{}, "hospital"},
+		{"ADMIN", domain.Actor{Role: domain.RoleAdmin, HosID: "H1"}, ports.HospitalFilter{ID: "H1", ExcludeIDs: dev}, "hospital:H1"},
+		{"LEGACY_ADMIN", domain.Actor{Role: domain.RoleLegacyAdmin, HosID: "H2"}, ports.HospitalFilter{ID: "H2", ExcludeIDs: dev}, "hospital:H2"},
+		{"SERVICE", domain.Actor{Role: domain.RoleService}, ports.HospitalFilter{ExcludeIDs: dev}, "hospital:HID-DEVELOPMENT"},
+		{"USER with ward", domain.Actor{Role: domain.RoleUser, WardID: "W1"}, ports.HospitalFilter{WardID: "W1"}, "hospital:W1"},
+		{"GUEST without ward", domain.Actor{Role: domain.RoleGuest}, ports.HospitalFilter{}, "hospital"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			caller := &domain.Actor{Role: tt.role, HosID: tt.hosID}
-			conds, notConds, key := buildHospitalConditions(caller)
-			if tt.expectConds {
-				assert.NotNil(t, conds)
-			} else {
-				assert.Nil(t, conds)
-			}
-			assert.Len(t, notConds, tt.expectNotConds)
-			assert.Equal(t, tt.expectKey, key)
+			filter, key := buildHospitalFilter(&tt.caller)
+			assert.Equal(t, tt.wantFilter, filter)
+			assert.Equal(t, tt.wantKey, key)
 		})
 	}
 }

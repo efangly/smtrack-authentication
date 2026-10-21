@@ -38,7 +38,7 @@ func (s *stubWardService) FindAll(ctx context.Context, caller *domain.Actor) ([]
 func (s *stubWardService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error) {
 	return &domain.Ward{ID: id}, nil
 }
-func (s *stubWardService) Update(ctx context.Context, id string, data map[string]any, caller *domain.Actor) (*domain.Ward, error) {
+func (s *stubWardService) Update(ctx context.Context, id string, data domain.WardPatch, caller *domain.Actor) (*domain.Ward, error) {
 	s.updated = true
 	return &domain.Ward{ID: id}, nil
 }

@@ -26,27 +26,30 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) (*domain
 	return user, nil
 }
 
-func (r *userRepository) FindAll(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.User, error) {
+func (r *userRepository) FindAll(ctx context.Context, filter ports.UserFilter) ([]domain.User, error) {
 	var users []domain.User
 	query := r.db.WithContext(ctx).
 		Preload("Ward").
-		Order(`"role" ASC`)
+		Order(`"Users"."role" ASC`)
 
-	if conditions != nil {
-		// Handle hosId condition via join
-		if hosID, ok := conditions["hosId"]; ok {
-			query = query.Joins("JOIN \"Wards\" ON \"Wards\".\"id\" = \"Users\".\"wardId\"").
-				Where("\"Wards\".\"hosId\" = ?", hosID)
-		}
+	// Hospital conditions apply through the user's ward, so any of them needs
+	// the join. (Excluding hospitals without it used to fail with a missing
+	// FROM-clause entry for "Wards".)
+	if filter.HosID != "" || len(filter.ExcludeHosIDs) > 0 {
+		query = query.Joins(`JOIN "Wards" ON "Wards"."id" = "Users"."wardId"`)
 	}
-
-	for _, nc := range notConditions {
-		if hosID, ok := nc["hosId"]; ok {
-			query = query.Where("\"Wards\".\"hosId\" != ?", hosID)
+	if filter.HosID != "" {
+		query = query.Where(`"Wards"."hosId" = ?`, filter.HosID)
+	}
+	if len(filter.ExcludeHosIDs) > 0 {
+		query = query.Where(`"Wards"."hosId" NOT IN ?`, filter.ExcludeHosIDs)
+	}
+	if len(filter.ExcludeRoles) > 0 {
+		roles := make([]string, len(filter.ExcludeRoles))
+		for i, role := range filter.ExcludeRoles {
+			roles[i] = string(role)
 		}
-		if role, ok := nc["role"]; ok {
-			query = query.Where("\"Users\".\"role\" != ?", role)
-		}
+		query = query.Where(`"Users"."role" NOT IN ?`, roles)
 	}
 
 	if err := query.Find(&users).Error; err != nil {
@@ -85,9 +88,9 @@ func (r *userRepository) FindByUsername(ctx context.Context, username string) (*
 	return &user, nil
 }
 
-func (r *userRepository) Update(ctx context.Context, id string, data map[string]any) (*domain.User, error) {
+func (r *userRepository) Update(ctx context.Context, id string, patch domain.UserPatch) (*domain.User, error) {
 	var user domain.User
-	if err := r.db.WithContext(ctx).Model(&user).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(data).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&user).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(userColumns(patch)).Error; err != nil {
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 	// Reload with relations

@@ -13,7 +13,6 @@ type CreateHospitalRequest struct {
 	UserTel      *string        `json:"userTel,omitempty" validate:"omitempty,min=9,max=20"`
 	HosLatitude  *string        `json:"hosLatitude,omitempty" validate:"omitempty,max=255"`
 	HosLongitude *string        `json:"hosLongitude,omitempty" validate:"omitempty,max=255"`
-	HosPic       *string        `json:"hosPic,omitempty" validate:"omitempty,max=150"`
 	HosType      domain.HosType `json:"hosType,omitempty"`
 }
 
@@ -28,7 +27,6 @@ func (r *CreateHospitalRequest) ToHospital() *domain.Hospital {
 		UserTel:      r.UserTel,
 		HosLatitude:  r.HosLatitude,
 		HosLongitude: r.HosLongitude,
-		HosPic:       r.HosPic,
 		HosType:      r.HosType,
 	}
 	if r.HosType == "" {
@@ -46,39 +44,20 @@ type UpdateHospitalRequest struct {
 	UserTel      *string         `json:"userTel,omitempty"`
 	HosLatitude  *string         `json:"hosLatitude,omitempty"`
 	HosLongitude *string         `json:"hosLongitude,omitempty"`
-	HosPic       *string         `json:"hosPic,omitempty"`
 	HosType      *domain.HosType `json:"hosType,omitempty"`
 }
 
-// ToMap converts the update DTO to a map for partial update
-func (r *UpdateHospitalRequest) ToMap() map[string]any {
-	data := make(map[string]any)
-	if r.HosName != nil {
-		data["hosName"] = *r.HosName
+// ToPatch converts the update DTO to a partial update; unset fields stay nil.
+// hosPic is set only by uploading an image (see UpdateUserRequest).
+func (r *UpdateHospitalRequest) ToPatch() domain.HospitalPatch {
+	return domain.HospitalPatch{
+		HosName:      r.HosName,
+		HosAddress:   r.HosAddress,
+		HosTel:       r.HosTel,
+		UserContact:  r.UserContact,
+		UserTel:      r.UserTel,
+		HosLatitude:  r.HosLatitude,
+		HosLongitude: r.HosLongitude,
+		HosType:      r.HosType,
 	}
-	if r.HosAddress != nil {
-		data["hosAddress"] = *r.HosAddress
-	}
-	if r.HosTel != nil {
-		data["hosTel"] = *r.HosTel
-	}
-	if r.UserContact != nil {
-		data["userContact"] = *r.UserContact
-	}
-	if r.UserTel != nil {
-		data["userTel"] = *r.UserTel
-	}
-	if r.HosLatitude != nil {
-		data["hosLatitude"] = *r.HosLatitude
-	}
-	if r.HosLongitude != nil {
-		data["hosLongitude"] = *r.HosLongitude
-	}
-	if r.HosPic != nil {
-		data["hosPic"] = *r.HosPic
-	}
-	if r.HosType != nil {
-		data["hosType"] = string(*r.HosType)
-	}
-	return data
 }

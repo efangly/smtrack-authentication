@@ -71,7 +71,7 @@ func TestUserService_UpdateAndRemove_TenantScope(t *testing.T) {
 			wrote := false
 			repo := &mockUserRepo{
 				FindByIDFn: findUserIn(domain.RoleUser, tt.userHos),
-				UpdateFn: func(_ context.Context, id string, _ map[string]any) (*domain.User, error) {
+				UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 					wrote = true
 					return &domain.User{ID: id}, nil
 				},
@@ -82,7 +82,7 @@ func TestUserService_UpdateAndRemove_TenantScope(t *testing.T) {
 			}
 			svc, _, _ := newTestUserService(repo)
 
-			_, updErr := svc.Update(context.Background(), "U2", map[string]any{"display": "x"}, nil, tt.caller)
+			_, updErr := svc.Update(context.Background(), "U2", domain.UserPatch{Display: ptr("x")}, nil, tt.caller)
 			_, rmErr := svc.Remove(context.Background(), "U2", tt.caller)
 			if tt.wantErr == "" {
 				assert.NoError(t, updErr)
@@ -140,7 +140,7 @@ func TestUserService_Create_WardMustBeInTenant(t *testing.T) {
 func TestUserService_Update_WardMoveMustStayInTenant(t *testing.T) {
 	repo := &mockUserRepo{
 		FindByIDFn: findUserIn(domain.RoleUser, "H1"), // currently in W1
-		UpdateFn: func(_ context.Context, id string, _ map[string]any) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 			return &domain.User{ID: id}, nil
 		},
 	}
@@ -152,12 +152,12 @@ func TestUserService_Update_WardMoveMustStayInTenant(t *testing.T) {
 	}
 	admin := actor(domain.RoleAdmin, "H1", "")
 
-	_, err := svc.Update(context.Background(), "U2", map[string]any{"wardId": "W2"}, nil, admin)
+	_, err := svc.Update(context.Background(), "U2", domain.UserPatch{WardID: ptr("W2")}, nil, admin)
 	assert.EqualError(t, err, "ward not found")
 
 	// Resubmitting the current ward needs no lookup and succeeds.
 	lookups = 0
-	_, err = svc.Update(context.Background(), "U2", map[string]any{"wardId": "W1"}, nil, admin)
+	_, err = svc.Update(context.Background(), "U2", domain.UserPatch{WardID: ptr("W1")}, nil, admin)
 	require.NoError(t, err)
 	assert.Zero(t, lookups)
 }

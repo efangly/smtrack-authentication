@@ -27,22 +27,17 @@ func (r *wardRepository) Create(ctx context.Context, ward *domain.Ward) (*domain
 	return r.FindByID(ctx, ward.ID)
 }
 
-func (r *wardRepository) FindAll(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.Ward, error) {
+func (r *wardRepository) FindAll(ctx context.Context, filter ports.WardFilter) ([]domain.Ward, error) {
 	var wards []domain.Ward
 	query := r.db.WithContext(ctx).
 		Preload("Hospital").
 		Order("\"wardSeq\" ASC")
 
-	if conditions != nil {
-		if hosID, ok := conditions["hosId"]; ok {
-			query = query.Where("\"hosId\" = ?", hosID)
-		}
+	if filter.HosID != "" {
+		query = query.Where("\"hosId\" = ?", filter.HosID)
 	}
-
-	for _, nc := range notConditions {
-		if hosID, ok := nc["hosId"]; ok {
-			query = query.Where("\"hosId\" != ?", hosID)
-		}
+	if len(filter.ExcludeHosIDs) > 0 {
+		query = query.Where("\"hosId\" NOT IN ?", filter.ExcludeHosIDs)
 	}
 
 	if err := query.Find(&wards).Error; err != nil {
@@ -66,9 +61,9 @@ func (r *wardRepository) FindByID(ctx context.Context, id string) (*domain.Ward,
 	return &ward, nil
 }
 
-func (r *wardRepository) Update(ctx context.Context, id string, data map[string]any) (*domain.Ward, error) {
+func (r *wardRepository) Update(ctx context.Context, id string, patch domain.WardPatch) (*domain.Ward, error) {
 	var ward domain.Ward
-	if err := r.db.WithContext(ctx).Model(&ward).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(data).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&ward).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(wardColumns(patch)).Error; err != nil {
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return r.FindByID(ctx, id)

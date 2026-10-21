@@ -75,7 +75,7 @@ func (h *WardHandler) Update(c fiber.Ctx) error {
 	}
 
 	caller := getCaller(c)
-	result, err := h.wardService.Update(c.Context(), id, req.ToMap(), caller)
+	result, err := h.wardService.Update(c.Context(), id, req.ToPatch(), caller)
 	if err != nil {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}

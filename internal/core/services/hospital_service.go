@@ -67,7 +67,7 @@ func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital,
 }
 
 func (s *hospitalService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error) {
-	conditions, notConditions, key := buildHospitalConditions(caller)
+	filter, key := buildHospitalFilter(caller)
 
 	// Check cache
 	cached, err := s.cache.Get(ctx, key)
@@ -78,7 +78,7 @@ func (s *hospitalService) FindAll(ctx context.Context, caller *domain.Actor) ([]
 		}
 	}
 
-	hospitals, err := s.repo.FindAll(ctx, conditions, notConditions)
+	hospitals, err := s.repo.FindAll(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -107,13 +107,13 @@ func (s *hospitalService) FindOne(ctx context.Context, id string, caller *domain
 	return hospital, nil
 }
 
-func (s *hospitalService) Update(ctx context.Context, id string, data map[string]any, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
+func (s *hospitalService) Update(ctx context.Context, id string, patch domain.HospitalPatch, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
 	if file != nil {
 		picURL, err := s.upload.Upload(ctx, file, "hospital")
 		if err != nil {
 			return nil, fmt.Errorf("image upload failed: %w", err)
 		}
-		data["hosPic"] = picURL
+		patch.HosPic = &picURL
 
 		// Delete old image
 		existing, err := s.repo.FindByID(ctx, id)
@@ -126,9 +126,7 @@ func (s *hospitalService) Update(ctx context.Context, id string, data map[string
 		}
 	}
 
-	data["updateAt"] = time.Now()
-
-	hospital, err := s.repo.Update(ctx, id, data)
+	hospital, err := s.repo.Update(ctx, id, patch)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +149,7 @@ func (s *hospitalService) Update(ctx context.Context, id string, data map[string
 	// User and ward listings embed hospital data, so they go stale too.
 	s.cache.Del(ctx, "ward")
 	s.cache.Del(ctx, "user")
-	s.audit.Record(ctx, domain.AuditEntityHospital, domain.AuditActionUpdate, id, caller, data)
+	s.audit.Record(ctx, domain.AuditEntityHospital, domain.AuditActionUpdate, id, caller, hospitalPatchChanges(patch))
 	return hospital, nil
 }
 
@@ -186,37 +184,21 @@ func (s *hospitalService) Remove(ctx context.Context, id string, caller *domain.
 	return hospital, nil
 }
 
-func buildHospitalConditions(caller *domain.Actor) (map[string]any, []map[string]any, string) {
-	var conditions map[string]any
-	var notConditions []map[string]any
-	var key string
-
+// buildHospitalFilter is the hospital listing each role may see, and its cache key.
+func buildHospitalFilter(caller *domain.Actor) (ports.HospitalFilter, string) {
 	switch caller.Role {
 	case domain.RoleAdmin, domain.RoleLegacyAdmin:
-		conditions = map[string]any{"id": caller.HosID}
-		notConditions = []map[string]any{
-			{"id": "HID-DEVELOPMENT"},
-		}
-		key = fmt.Sprintf("hospital:%s", caller.HosID)
+		return ports.HospitalFilter{ID: caller.HosID, ExcludeIDs: []string{developmentHosID}},
+			fmt.Sprintf("hospital:%s", caller.HosID)
 	case domain.RoleService:
-		notConditions = []map[string]any{
-			{"id": "HID-DEVELOPMENT"},
-		}
-		key = "hospital:HID-DEVELOPMENT"
-	case domain.RoleSuper:
-		key = "hospital"
+		return ports.HospitalFilter{ExcludeIDs: []string{developmentHosID}}, "hospital:" + developmentHosID
 	case domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest:
 		// An empty wardId would filter on "" and, worse, make every ward-less
 		// caller share the cache key "hospital:".
 		if caller.WardID == "" {
-			key = "hospital"
-			break
+			return ports.HospitalFilter{}, "hospital"
 		}
-		conditions = map[string]any{"wardId": caller.WardID}
-		key = fmt.Sprintf("hospital:%s", caller.WardID)
-	default:
-		key = "hospital"
+		return ports.HospitalFilter{WardID: caller.WardID}, fmt.Sprintf("hospital:%s", caller.WardID)
 	}
-
-	return conditions, notConditions, key
+	return ports.HospitalFilter{}, "hospital"
 }

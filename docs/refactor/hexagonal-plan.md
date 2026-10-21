@@ -94,14 +94,16 @@
 
 ## Phase 4 — Filter และ Patch แบบมี type (L5)
 
-- [ ] `ports`: `UserFilter{HosID string; ExcludeHosIDs []string; ExcludeRoles []domain.Role}`, `WardFilter`, `HospitalFilter{ID, WardID string; ExcludeIDs []string}` (สไตล์เดียวกับ `AuditFilter`)
-- [ ] `build*Conditions` คืน filter struct + cache key; repository แปลงเป็น `Where` แบบ quoted เอง
-- [ ] `domain.UserPatch`, `WardPatch`, `HospitalPatch` — field เป็น pointer; `Password *string` มีเฉพาะใน `UserPatch` (ใช้ภายในจาก ResetPassword)
-- [ ] DTO `ToMap()` → `ToPatch()`; handler strip `Role/Status/WardID` โดย set เป็น nil
-- [ ] repository แปลง patch → `map[string]any` ด้วยคีย์คอลัมน์จริง รวม `"updateAt"`
-- [ ] `sanitizeAuditChanges` → audit บันทึก patch ที่ `Password` ถูกตัดออกแบบ type-safe
-- [ ] เอา `pic` ออกจาก `CreateUserRequest`/`UpdateUserRequest` และ `hosPic` ออกจาก DTO hospital — ตั้งได้ผ่าน upload เท่านั้น (ปิด M3)
-- [ ] อัปเดต CLAUDE.md หัวข้อ "Partial updates"
+- [x] `ports`: `UserFilter{HosID; ExcludeHosIDs; ExcludeRoles}`, `WardFilter{HosID; ExcludeHosIDs}`, `HospitalFilter{ID; WardID; ExcludeIDs}`
+- [x] `build*Conditions` → `build*Filter` คืน filter + cache key; repository สร้าง `Where` แบบ quoted เอง (`NOT IN` แทน `!=` หลายตัว)
+  - [x] **พบและแก้บั๊ก**: `userRepository.FindAll` join `Wards` เฉพาะเมื่อมี `hosId` → filter ของ SERVICE (exclude อย่างเดียว) ได้ SQL `SELECT * FROM "Users" WHERE "Wards"."hosId" != $1` ซึ่ง Postgres ปฏิเสธ → `GET /auth/user` ของ SERVICE เป็น 500 ตอนนี้ join ทุกครั้งที่มีเงื่อนไขโรงพยาบาล (ยืนยันด้วย DryRun test, ยังไม่ได้รันกับ Postgres จริง)
+- [x] `domain.UserPatch`, `WardPatch`, `HospitalPatch` (`domain/patch.go`)
+- [x] DTO `ToMap()` → `ToPatch()`; handler strip `Role/Status/WardID` ด้วยการตั้งเป็น nil
+- [x] repository แปลง patch → column map ใน `database/columns.go` และ stamp `updateAt` เอง
+- [x] audit: `services/audit_changes.go` สร้าง changes จาก patch (ไม่มี password เลย); `sanitizeAuditChanges` คงไว้เป็นชั้นป้องกันที่สอง — **หมายเหตุ**: changes ของ UPDATE ไม่มี `updateAt` แล้ว
+- [x] เอา `pic` ออกจาก `CreateUserRequest`/`UpdateUserRequest` และ `hosPic` ออกจาก DTO hospital (ปิด M3)
+- [x] อัปเดต CLAUDE.md หัวข้อ "Partial updates"
+- [x] เพิ่มเทสต์ที่ขาด: `userService.Update` hash รหัสผ่าน และ audit ไม่บันทึกรหัสผ่าน
 
 ## Phase 5 — Cache codec + ไม่เก็บ secret ลง cache (L7)
 

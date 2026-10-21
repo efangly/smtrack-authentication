@@ -26,7 +26,7 @@ func (r *hospitalRepository) Create(ctx context.Context, hospital *domain.Hospit
 	return hospital, nil
 }
 
-func (r *hospitalRepository) FindAll(ctx context.Context, conditions map[string]any, notConditions []map[string]any) ([]domain.Hospital, error) {
+func (r *hospitalRepository) FindAll(ctx context.Context, filter ports.HospitalFilter) ([]domain.Hospital, error) {
 	var hospitals []domain.Hospital
 	query := r.db.WithContext(ctx).
 		Preload("Wards", func(db *gorm.DB) *gorm.DB {
@@ -34,19 +34,14 @@ func (r *hospitalRepository) FindAll(ctx context.Context, conditions map[string]
 		}).
 		Order("\"hosSeq\" ASC")
 
-	if conditions != nil {
-		if id, ok := conditions["id"]; ok {
-			query = query.Where("\"id\" = ?", id)
-		}
-		if wardId, ok := conditions["wardId"]; ok {
-			query = query.Where(`EXISTS (SELECT 1 FROM "Wards" WHERE "Wards"."hosId" = "Hospitals".id AND "Wards".id = ?)`, wardId)
-		}
+	if filter.ID != "" {
+		query = query.Where("\"id\" = ?", filter.ID)
 	}
-
-	for _, nc := range notConditions {
-		if id, ok := nc["id"]; ok {
-			query = query.Where("\"id\" != ?", id)
-		}
+	if filter.WardID != "" {
+		query = query.Where(`EXISTS (SELECT 1 FROM "Wards" WHERE "Wards"."hosId" = "Hospitals".id AND "Wards".id = ?)`, filter.WardID)
+	}
+	if len(filter.ExcludeIDs) > 0 {
+		query = query.Where("\"id\" NOT IN ?", filter.ExcludeIDs)
 	}
 
 	if err := query.Find(&hospitals).Error; err != nil {
@@ -72,9 +67,9 @@ func (r *hospitalRepository) FindByID(ctx context.Context, id string) (*domain.H
 	return &hospital, nil
 }
 
-func (r *hospitalRepository) Update(ctx context.Context, id string, data map[string]any) (*domain.Hospital, error) {
+func (r *hospitalRepository) Update(ctx context.Context, id string, patch domain.HospitalPatch) (*domain.Hospital, error) {
 	var hospital domain.Hospital
-	if err := r.db.WithContext(ctx).Model(&hospital).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(data).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&hospital).Clauses(clause.Returning{}).Where("\"id\" = ?", id).Updates(hospitalColumns(patch)).Error; err != nil {
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 	return r.FindByID(ctx, id)

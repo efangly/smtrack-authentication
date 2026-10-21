@@ -5,7 +5,7 @@ import (
 )
 
 // developmentHosID is the internal test hospital hidden from every role but
-// SUPER in the listing queries (see build*Conditions).
+// SUPER in the listing queries (see build*Filter).
 const developmentHosID = "HID-DEVELOPMENT"
 
 // canManageUsersIn reports whether caller may read or change a user belonging
@@ -32,7 +32,7 @@ func userHosID(user *domain.User) string {
 	return user.Ward.HosID
 }
 
-// canSeeHospital mirrors buildHospitalConditions for a single hospital, so a
+// canSeeHospital mirrors buildHospitalFilter for a single hospital, so a
 // lookup by id never reveals a hospital the caller's listing would hide.
 func canSeeHospital(caller *domain.Actor, hospital *domain.Hospital) bool {
 	switch caller.Role {
@@ -55,7 +55,7 @@ func canSeeHospital(caller *domain.Actor, hospital *domain.Hospital) bool {
 	return false
 }
 
-// canSeeWard mirrors buildWardConditions for a single ward.
+// canSeeWard mirrors buildWardFilter for a single ward.
 func canSeeWard(caller *domain.Actor, ward *domain.Ward) bool {
 	switch caller.Role {
 	case domain.RoleSuper:
@@ -65,7 +65,7 @@ func canSeeWard(caller *domain.Actor, ward *domain.Ward) bool {
 	case domain.RoleAdmin, domain.RoleLegacyAdmin:
 		return caller.HosID != "" && ward.HosID == caller.HosID && ward.HosID != developmentHosID
 	case domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest:
-		// Listing is unscoped for these roles today (buildWardConditions
+		// Listing is unscoped for these roles today (buildWardFilter
 		// default), so a lookup by id stays unscoped too.
 		return true
 	}

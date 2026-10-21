@@ -64,7 +64,7 @@ func TestWardService_Create_RepoError(t *testing.T) {
 
 func TestWardService_FindAll_Success(t *testing.T) {
 	repo := &mockWardRepo{
-		FindAllFn: func(_ context.Context, _ map[string]any, _ []map[string]any) ([]domain.Ward, error) {
+		FindAllFn: func(_ context.Context, _ ports.WardFilter) ([]domain.Ward, error) {
 			return []domain.Ward{{ID: "W1"}, {ID: "W2"}}, nil
 		},
 	}
@@ -77,7 +77,7 @@ func TestWardService_FindAll_Success(t *testing.T) {
 
 func TestWardService_FindAll_RepoError(t *testing.T) {
 	repo := &mockWardRepo{
-		FindAllFn: func(_ context.Context, _ map[string]any, _ []map[string]any) ([]domain.Ward, error) {
+		FindAllFn: func(_ context.Context, _ ports.WardFilter) ([]domain.Ward, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -120,14 +120,14 @@ func TestWardService_Update_SendsToDeviceForNewType(t *testing.T) {
 	deviceCalled := false
 	newType := domain.WardTypeNew
 	repo := &mockWardRepo{
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any) (*domain.Ward, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.WardPatch) (*domain.Ward, error) {
 			return &domain.Ward{ID: "W1", WardName: "Updated", Type: &newType}, nil
 		},
 	}
 	svc, _, msg := newTestWardService(repo)
 	msg.SendToDeviceFn = func(string, any) error { deviceCalled = true; return nil }
 
-	w, err := svc.Update(context.Background(), "W1", map[string]any{"wardName": "Updated"}, nil)
+	w, err := svc.Update(context.Background(), "W1", domain.WardPatch{WardName: ptr("Updated")}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", w.WardName)
 	assert.True(t, deviceCalled)
@@ -137,27 +137,27 @@ func TestWardService_Update_SendsToLegacyForLegacyType(t *testing.T) {
 	legacyCalled := false
 	legacyType := domain.WardTypeLegacy
 	repo := &mockWardRepo{
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any) (*domain.Ward, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.WardPatch) (*domain.Ward, error) {
 			return &domain.Ward{ID: "W1", WardName: "Legacy", Type: &legacyType}, nil
 		},
 	}
 	svc, _, msg := newTestWardService(repo)
 	msg.SendToLegacyFn = func(string, any) error { legacyCalled = true; return nil }
 
-	_, err := svc.Update(context.Background(), "W1", map[string]any{"wardName": "Legacy"}, nil)
+	_, err := svc.Update(context.Background(), "W1", domain.WardPatch{WardName: ptr("Legacy")}, nil)
 	require.NoError(t, err)
 	assert.True(t, legacyCalled)
 }
 
 func TestWardService_Update_RepoError(t *testing.T) {
 	repo := &mockWardRepo{
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any) (*domain.Ward, error) {
+		UpdateFn: func(_ context.Context, _ string, _ domain.WardPatch) (*domain.Ward, error) {
 			return nil, errors.New("update failed")
 		},
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	_, err := svc.Update(context.Background(), "W1", map[string]any{}, nil)
+	_, err := svc.Update(context.Background(), "W1", domain.WardPatch{}, nil)
 	assert.EqualError(t, err, "update failed")
 }
 
@@ -208,32 +208,25 @@ func TestWardService_Remove_DeleteError(t *testing.T) {
 
 // --- buildWardConditions ---
 
-func TestBuildWardConditions(t *testing.T) {
+func TestBuildWardFilter(t *testing.T) {
+	dev := []string{developmentHosID}
 	tests := []struct {
-		name           string
-		role           domain.Role
-		hosID          string
-		expectConds    bool
-		expectNotConds int
-		expectKey      string
+		role       domain.Role
+		hosID      string
+		wantFilter ports.WardFilter
+		wantKey    string
 	}{
-		{"SUPER", "SUPER", "", false, 0, "ward"},
-		{"ADMIN", "ADMIN", "H1", true, 1, "ward:H1"},
-		{"LEGACY_ADMIN", "LEGACY_ADMIN", "H2", true, 1, "ward:H2"},
-		{"SERVICE", "SERVICE", "", false, 1, "ward:HID-DEVELOPMENT"},
-		{"USER default", "USER", "", false, 0, "ward"},
+		{domain.RoleSuper, "", ports.WardFilter{}, "ward"},
+		{domain.RoleAdmin, "H1", ports.WardFilter{HosID: "H1", ExcludeHosIDs: dev}, "ward:H1"},
+		{domain.RoleLegacyAdmin, "H2", ports.WardFilter{HosID: "H2", ExcludeHosIDs: dev}, "ward:H2"},
+		{domain.RoleService, "", ports.WardFilter{ExcludeHosIDs: dev}, "ward:HID-DEVELOPMENT"},
+		{domain.RoleUser, "", ports.WardFilter{}, "ward"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			caller := &domain.Actor{Role: tt.role, HosID: tt.hosID}
-			conds, notConds, key := buildWardConditions(caller)
-			if tt.expectConds {
-				assert.NotNil(t, conds)
-			} else {
-				assert.Nil(t, conds)
-			}
-			assert.Len(t, notConds, tt.expectNotConds)
-			assert.Equal(t, tt.expectKey, key)
+		t.Run(string(tt.role), func(t *testing.T) {
+			filter, key := buildWardFilter(&domain.Actor{Role: tt.role, HosID: tt.hosID})
+			assert.Equal(t, tt.wantFilter, filter)
+			assert.Equal(t, tt.wantKey, key)
 		})
 	}
 }

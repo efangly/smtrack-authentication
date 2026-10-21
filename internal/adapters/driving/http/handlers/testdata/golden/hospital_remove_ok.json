@@ -1,0 +1,33 @@
+{
+  "status": 200,
+  "body": {
+    "message": "Success",
+    "success": true,
+    "data": {
+      "id": "HID-1",
+      "hosName": "General Hospital",
+      "hosSeq": 7,
+      "hosAddress": "1 Main Rd",
+      "hosTel": "021234567",
+      "userContact": "Contact Person",
+      "userTel": null,
+      "hosLatitude": "13.7563",
+      "hosLongitude": null,
+      "hosPic": null,
+      "hosType": "HOSPITAL",
+      "createAt": "2024-01-02T03:04:05Z",
+      "updateAt": "2024-01-02T03:04:05Z",
+      "ward": [
+        {
+          "id": "WID-1",
+          "wardName": "Ward A",
+          "wardSeq": 1,
+          "type": "NEW",
+          "hosId": "HID-1",
+          "createAt": "2024-01-02T03:04:05Z",
+          "updateAt": "2024-01-02T03:04:05Z"
+        }
+      ]
+    }
+  }
+}

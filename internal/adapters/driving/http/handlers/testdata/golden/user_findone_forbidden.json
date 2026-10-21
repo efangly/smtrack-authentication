@@ -1,0 +1,7 @@
+{
+  "status": 403,
+  "body": {
+    "message": "You can only access your own account",
+    "success": false
+  }
+}

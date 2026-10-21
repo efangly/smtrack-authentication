@@ -1,0 +1,11 @@
+{
+  "status": 200,
+  "body": {
+    "message": "Success",
+    "success": true,
+    "data": {
+      "token": "access2.jwt",
+      "refreshToken": "refresh2.jwt"
+    }
+  }
+}

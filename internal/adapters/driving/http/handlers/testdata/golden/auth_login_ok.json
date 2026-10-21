@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "body": {
+    "message": "Success",
+    "success": true,
+    "data": {
+      "token": "access.jwt",
+      "refreshToken": "refresh.jwt",
+      "id": "UID-1",
+      "name": "John Doe",
+      "hosId": "HID-1",
+      "wardId": "WID-1",
+      "role": "USER",
+      "pic": null
+    }
+  }
+}

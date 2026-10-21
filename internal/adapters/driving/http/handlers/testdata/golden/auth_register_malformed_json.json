@@ -1,0 +1,7 @@
+{
+  "status": 400,
+  "body": {
+    "message": "Invalid request body",
+    "success": false
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "status": 201,
+  "body": {
+    "message": "Success",
+    "success": true,
+    "data": {
+      "id": "UID-1",
+      "wardId": "WID-1",
+      "username": "jdoe",
+      "status": true,
+      "role": "GUEST",
+      "display": "John Doe",
+      "pic": null,
+      "comment": "night shift",
+      "createBy": null,
+      "createAt": "2024-01-02T03:04:05Z",
+      "updateAt": "2024-01-02T03:04:05Z"
+    }
+  }
+}

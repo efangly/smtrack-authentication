@@ -55,12 +55,14 @@
 
 ## Phase 0 — Safety net + เอกสารการตัดสินใจ
 
-- [ ] Golden JSON snapshot test ของ response ทุก endpoint (success + error) — `test/e2e/golden/` + flag `-update`
-- [ ] `internal/arch_test.go`: ใช้ `go list -deps -json ./internal/core/...` แล้ว fail ถ้า core import `internal/adapters`, `gofiber`, `gorm.io`, `golang-jwt`, `x/crypto/bcrypt`, `smtrack-authentication/config`, `mime/multipart`
-  - [ ] มี **allowlist** การละเมิดปัจจุบัน (ratchet) — แต่ละ phase ต้องลบรายการของตัวเองออก
-- [ ] `GLOSSARY.md` (ตาม format ของ skill domain-modeling): **Actor**, **Admin tier**, **Role ceiling**, **Tenant scope** (hospital), **Hospital**, **Ward**, **Guest**
-- [ ] `docs/adr/0001-domain-free-of-infrastructure-tags.md` — domain ไม่มีแท็ก gorm/json; persistence model + mapper อยู่ใน adapter; response อยู่ใน DTO
-- [ ] `docs/adr/0002-cache-aside-in-services.md` — cache-aside และกฎ cascade invalidation อยู่ใน service (ไม่ใช่ decorator) เพราะกฎ cascade ข้าม entity เป็น business knowledge; codec อยู่ใน adapter
+- [x] Golden JSON snapshot test ของ response ทุก endpoint (success + error) — **ย้ายที่**: ทำที่ระดับ handler (mock service) แทน e2e เพื่อให้ deterministic และรันใน `go test ./...`: `internal/adapters/driving/http/handlers/golden_test.go` + `testdata/golden/*.json` (33 เคส) + flag `-update`; ยืนยันด้วยว่า password hash ไม่หลุดใน response
+- [x] `internal/arch_test.go`: `go list` direct imports ของ `internal/core/...` ห้าม `internal/adapters`, `config`, `gofiber`, `gorm.io`, `golang-jwt`, `x/crypto`, `redis`, `rabbitmq`, `mime/multipart`, `net/http`
+  - [x] **allowlist** แบบ ratchet (`importAllowlist`) — entry ที่ไม่เกิดแล้วทำให้เทสต์ fail ต้องลบออก
+  - [x] เพิ่ม: กฎทิศทาง layer (domain ห้าม import ports/services; ports ห้าม import services) — ย้ายมาจาก Phase 7
+  - [x] เพิ่ม: ตรวจ struct tag `gorm`/`json` ใน `core/domain` (go list มองไม่เห็น tag) พร้อม `tagAllowlist` → Phase 6
+- [x] `GLOSSARY.md`: Hospital, Ward, Development hospital, User, Actor, Role, Guest, Admin tier, Hospital-scoped admin, Role ceiling, Tenant scope, Status, Audit log
+- [x] `docs/adr/0001-domain-free-of-infrastructure-tags.md`
+- [x] `docs/adr/0002-cache-aside-in-services.md`
 
 ## Phase 1 — `JwtPayload` → `domain.Actor` (L6)
 
@@ -121,7 +123,7 @@
 
 ## Phase 7 — ปิดงาน
 
-- [ ] allowlist ใน `internal/arch_test.go` ต้องว่าง และเพิ่มกฎ: `domain` ห้าม import `ports`/`services`; `ports` ห้าม import `services`
+- [ ] `importAllowlist` และ `tagAllowlist` ใน `internal/arch_test.go` ต้องว่าง
 - [ ] เพิ่ม `go test ./...` เข้า `.github/workflows/main.yaml` ก่อนขั้น build image (ปัจจุบัน CI ไม่รันเทสต์)
 - [ ] อัปเดต `CLAUDE.md` (Architecture, Conventions, Security invariants: role ceiling, tenant scope, ward guard, disabled-login), `README.md` (โครงสร้างโฟลเดอร์ + ตาราง role ของ ward/audit)
 - [ ] ทบทวน `GLOSSARY.md` และ ADR ว่ายังตรงกับโค้ด

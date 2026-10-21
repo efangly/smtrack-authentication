@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "body": {
+    "message": "Success",
+    "success": true,
+    "data": [
+      {
+        "id": "AID-1",
+        "entity": "USER",
+        "entityId": "UID-1",
+        "action": "UPDATE",
+        "actorId": "UID-0",
+        "actorName": "Admin",
+        "changes": "{\"display\":\"John Doe\"}",
+        "createAt": "2024-01-02T03:04:05Z"
+      }
+    ]
+  }
+}

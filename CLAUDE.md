@@ -128,3 +128,14 @@ Tests are table-driven-ish, `testify` (`assert`/`require`), and fully mocked:
   return 401 without it.
 
 When changing a port signature, update the corresponding mock in both files.
+
+Two guard-rail suites run with `go test ./...`:
+
+- `handlers/golden_test.go` pins every endpoint's exact JSON response in
+  `handlers/testdata/golden/`. If a change to a response is *intended*, regenerate with
+  `go test ./internal/adapters/driving/http/handlers/ -run TestGolden -update` and review
+  the diff. Otherwise a failure there means a client-visible regression.
+- `internal/arch_test.go` enforces the hexagonal dependency rules. Its allowlists are a
+  ratchet for `docs/refactor/hexagonal-plan.md`: entries may only be removed, and a stale
+  entry fails the test. The domain vocabulary is in `GLOSSARY.md` and the decisions are in
+  `docs/adr/`.

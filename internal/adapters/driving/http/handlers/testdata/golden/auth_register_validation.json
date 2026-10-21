@@ -1,0 +1,7 @@
+{
+  "status": 400,
+  "body": {
+    "message": "wardId is required; password is required",
+    "success": false
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "status": 404,
+  "body": {
+    "message": "user not found",
+    "success": false
+  }
+}

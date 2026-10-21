@@ -45,10 +45,11 @@
 - [x] test ใน `auth_service_test.go` + e2e `auth_login_test.go`
 
 ### S5 — Rate limit หลัง KrakenD (M1, Medium)
-- [ ] `config.Config` เพิ่ม `TrustedProxies []string` จาก env `TRUSTED_PROXIES` (comma-separated CIDR)
-- [ ] `main.go` `fiber.Config`: ถ้ามีค่า → `TrustProxy: true`, `TrustProxyConfig{Proxies: ...}`, `ProxyHeader: fiber.HeaderXForwardedFor`; ถ้าไม่มี → พฤติกรรมเดิม
-- [ ] เพิ่มใน `.env.example`, `k8s/deploy.yaml`
-- [ ] test: request จาก trusted proxy ที่ X-Forwarded-For ต่างกันได้ bucket แยกกัน
+- [x] `config.Config` เพิ่ม `TrustedProxies []string` จาก env `TRUSTED_PROXIES` (comma-separated CIDR/IP)
+- [x] ~~`fiber.Config` `TrustProxy` + `ProxyHeader: X-Forwarded-For`~~ — **เปลี่ยนแนวทาง**: Fiber คืน IP *ซ้ายสุด* ของ XFF ซึ่ง client ปลอมได้ จึงใช้ `middleware.TrustedProxies.ClientIP` เป็น `KeyGenerator` ของ limiter แทน (เดิน XFF จากขวา ข้าม trusted proxy); ถ้าไม่ตั้ง env → พฤติกรรมเดิม
+- [x] เพิ่มใน `.env.example`, `k8s/deploy.yaml` (`optional: true`)
+- [x] test: `middleware/client_ip_test.go` + `router_test.go` (client แยก bucket, spoof ซ้ายสุดไม่ช่วย, ไม่ตั้ง env → ไม่เชื่อ header)
+- [ ] **ops**: ใส่ CIDR ของ KrakenD ลง configmap `authentication-config` key `TRUSTED_PROXIES`
 
 ---
 

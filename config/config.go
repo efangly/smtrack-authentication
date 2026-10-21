@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 
 	"github.com/efangly/smtrack-authentication/pkg/logger"
 	"github.com/joho/godotenv"
@@ -20,6 +21,10 @@ type Config struct {
 	RabbitMQURL       string
 	NodeEnv           string
 	LogLevel          string
+	// TrustedProxies lists the CIDR ranges or addresses of the proxies in
+	// front of this service (KrakenD), from comma-separated TRUSTED_PROXIES.
+	// Empty means the TCP peer is the client.
+	TrustedProxies []string
 }
 
 // LoadDotEnv reads the .env file into the process environment. It must run
@@ -42,6 +47,7 @@ func Load() *Config {
 		RabbitMQURL:       getEnv("RABBITMQ", ""),
 		NodeEnv:           getEnv("NODE_ENV", "production"),
 		LogLevel:          getEnv("LOG_LEVEL", "warn"),
+		TrustedProxies:    splitList(getEnv("TRUSTED_PROXIES", "")),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -58,6 +64,17 @@ func Load() *Config {
 	}
 
 	return cfg
+}
+
+// splitList splits a comma-separated value, dropping blank entries.
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func getEnv(key, defaultValue string) string {

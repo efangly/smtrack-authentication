@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/handlers"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/pkg/validator"
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -61,8 +63,16 @@ func newTestRouter(wardSvc ports.WardService) *fiber.App {
 }
 
 func newTestRouterWith(wardSvc ports.WardService, auditSvc ports.AuditService) *fiber.App {
-	app := fiber.New()
-	cfg := &config.Config{JWTSecret: testJWTSecret, JWTRefreshSecret: "test-refresh-secret"}
+	return newTestRouterCfg(testConfig(), wardSvc, auditSvc)
+}
+
+func testConfig() *config.Config {
+	return &config.Config{JWTSecret: testJWTSecret, JWTRefreshSecret: "test-refresh-secret"}
+}
+
+func newTestRouterCfg(cfg *config.Config, wardSvc ports.WardService, auditSvc ports.AuditService) *fiber.App {
+	// Same validator as main.go, so invalid bodies stop at the handler.
+	app := fiber.New(fiber.Config{StructValidator: validator.Validator{}})
 	NewRouter(app, cfg,
 		handlers.NewAuthHandler(nil),
 		handlers.NewUserHandler(nil),
@@ -154,4 +164,57 @@ func TestRouter_AuditLogs_RequireSuperOrService(t *testing.T) {
 			}
 		})
 	}
+}
+
+// loginStatuses sends n login requests (an empty body fails validation before
+// any service is reached, but still counts against the limiter) and returns
+// the status codes. xff(i) supplies each request's X-Forwarded-For.
+func loginStatuses(t *testing.T, app *fiber.App, n int, xff func(i int) string) []int {
+	t.Helper()
+	statuses := make([]int, n)
+	for i := range n {
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-For", xff(i))
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		statuses[i] = resp.StatusCode
+	}
+	return statuses
+}
+
+// app.Test always reports the peer as 0.0.0.0, which stands in for KrakenD.
+func TestRouter_LoginLimiter_KeysOnClientBehindTrustedProxy(t *testing.T) {
+	cfg := testConfig()
+	cfg.TrustedProxies = []string{"0.0.0.0/32"}
+	app := newTestRouterCfg(cfg, &stubWardService{}, &stubAuditService{})
+
+	// Eleven different clients behind the gateway each get their own bucket.
+	statuses := loginStatuses(t, app, 11, func(i int) string { return fmt.Sprintf("203.0.113.%d", i+1) })
+	assert.NotContains(t, statuses, fiber.StatusTooManyRequests)
+
+	// One client is still limited to 10 per minute.
+	statuses = loginStatuses(t, app, 11, func(int) string { return "198.51.100.7" })
+	assert.Equal(t, fiber.StatusTooManyRequests, statuses[10])
+	assert.NotContains(t, statuses[:10], fiber.StatusTooManyRequests)
+}
+
+func TestRouter_LoginLimiter_SpoofedLeftmostHopDoesNotEvade(t *testing.T) {
+	cfg := testConfig()
+	cfg.TrustedProxies = []string{"0.0.0.0/32"}
+	app := newTestRouterCfg(cfg, &stubWardService{}, &stubAuditService{})
+
+	// The client varies the part of the header it controls; the gateway
+	// appends the real address on the right.
+	statuses := loginStatuses(t, app, 11, func(i int) string {
+		return fmt.Sprintf("10.9.9.%d, 198.51.100.7", i+1)
+	})
+	assert.Equal(t, fiber.StatusTooManyRequests, statuses[10])
+}
+
+func TestRouter_LoginLimiter_IgnoresHeaderWithoutTrustedProxies(t *testing.T) {
+	app := newTestRouterCfg(testConfig(), &stubWardService{}, &stubAuditService{})
+
+	statuses := loginStatuses(t, app, 11, func(i int) string { return fmt.Sprintf("203.0.113.%d", i+1) })
+	assert.Equal(t, fiber.StatusTooManyRequests, statuses[10])
 }

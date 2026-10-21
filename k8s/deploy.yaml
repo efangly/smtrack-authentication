@@ -93,6 +93,14 @@ spec:
             configMapKeyRef:
               name: rabbitmq-config
               key: RABBITMQ
+        # CIDR(s) of the KrakenD pods, comma-separated. Optional: while unset,
+        # the login/register rate limiter keys on the TCP peer (the gateway).
+        - name: TRUSTED_PROXIES
+          valueFrom:
+            configMapKeyRef:
+              name: authentication-config
+              key: TRUSTED_PROXIES
+              optional: true
 ---
 apiVersion: v1
 kind: Service

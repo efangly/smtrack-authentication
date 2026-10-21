@@ -109,8 +109,12 @@ These were bugs once. Do not regress them.
   copying the old token's claims, so a demoted or deactivated user loses access at the next
   refresh instead of keeping it for the token's remaining lifetime.
 - CORS lives in `main.go` on purpose even though KrakenD also sets it; leave it unless
-  asked. Rate limiting on `/auth/login` and `/auth/register` is per-IP and in-process —
-  it resets on restart and is not shared across replicas.
+  asked. Rate limiting on `/auth/login` and `/auth/register` is per-client-IP and
+  in-process — it resets on restart and is not shared across replicas. The key comes from
+  `middleware.TrustedProxies.ClientIP`: when the peer is in `TRUSTED_PROXIES` it walks
+  `X-Forwarded-For` **from the right** and takes the first untrusted hop. Never switch it
+  to `fiber.Config.ProxyHeader` / `c.IP()` — Fiber returns the *leftmost* entry, which
+  the client controls, so one client could rotate through unlimited buckets.
 
 ## Testing
 

@@ -8,6 +8,7 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/handlers"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/middleware"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/pkg/logger"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
 )
@@ -48,11 +49,19 @@ func NewRouter(
 func (r *Router) Setup() {
 	auth := r.app.Group("/auth")
 
-	// Public routes (no auth required). Rate limited per IP so credentials
-	// cannot be brute forced and accounts cannot be mass-created.
+	// Behind KrakenD every connection comes from the gateway, so without this
+	// the limiter below would put all clients into one shared bucket.
+	proxies, err := middleware.ParseTrustedProxies(r.cfg.TrustedProxies)
+	if err != nil {
+		logger.Fatal("Invalid TRUSTED_PROXIES", "error", err)
+	}
+
+	// Public routes (no auth required). Rate limited per client IP so
+	// credentials cannot be brute forced and accounts cannot be mass-created.
 	publicLimiter := limiter.New(limiter.Config{
-		Max:        10,
-		Expiration: time.Minute,
+		Max:          10,
+		Expiration:   time.Minute,
+		KeyGenerator: proxies.ClientIP,
 		LimitReached: func(c fiber.Ctx) error {
 			return c.Status(fiber.StatusTooManyRequests).
 				JSON(dto.FailResponse("Too many requests, please try again later"))

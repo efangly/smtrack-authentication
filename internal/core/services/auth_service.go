@@ -82,6 +82,13 @@ func (s *authService) ValidateUser(ctx context.Context, username string, passwor
 		return nil, nil
 	}
 
+	// A deactivated account fails exactly like a wrong password, and only
+	// after the hash comparison, so neither the message nor the timing tells
+	// a caller that the account exists but is disabled.
+	if !user.Status {
+		return nil, nil
+	}
+
 	return user, nil
 }
 

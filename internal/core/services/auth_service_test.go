@@ -102,7 +102,7 @@ func TestAuthService_ValidateUser_Success(t *testing.T) {
 	hashed, _ := bcrypt.GenerateFromPassword([]byte("correct"), 10)
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Password: string(hashed)}, nil
+			return &domain.User{ID: "U1", Password: string(hashed), Status: true}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
@@ -136,6 +136,22 @@ func TestAuthService_ValidateUser_UserNotFound(t *testing.T) {
 	svc, _, _ := newTestAuthService(userSvc)
 
 	user, err := svc.ValidateUser(context.Background(), "nobody", "pass")
+	require.NoError(t, err)
+	assert.Nil(t, user)
+}
+
+func TestAuthService_ValidateUser_DisabledAccount(t *testing.T) {
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("correct"), 10)
+	userSvc := &mockUserService{
+		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
+			return &domain.User{ID: "U1", Password: string(hashed), Status: false}, nil
+		},
+	}
+	svc, _, _ := newTestAuthService(userSvc)
+
+	// Same outcome as a wrong password: the handler turns nil, nil into
+	// "Invalid username or password".
+	user, err := svc.ValidateUser(context.Background(), "admin", "correct")
 	require.NoError(t, err)
 	assert.Nil(t, user)
 }

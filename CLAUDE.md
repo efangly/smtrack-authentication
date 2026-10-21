@@ -102,6 +102,9 @@ These were bugs once. Do not regress them.
   none, so any token — including a self-registered GUEST — could rename or delete any ward.
   `internal/adapters/driving/http/router_test.go` drives the real route table; extend it
   when adding a guarded route.
+- **A deactivated account (`status=false`) cannot log in.** `authService.ValidateUser`
+  rejects it *after* the bcrypt comparison and returns the same `nil, nil` as a wrong
+  password, so neither the message nor the timing reveals that the account exists.
 - **Refresh rebuilds claims from the database** (`authService.RefreshTokens`), never by
   copying the old token's claims, so a demoted or deactivated user loses access at the next
   refresh instead of keeping it for the token's remaining lifetime.

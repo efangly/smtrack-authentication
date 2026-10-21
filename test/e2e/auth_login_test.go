@@ -54,6 +54,42 @@ func TestLogin_WrongPasswordAndUnknownUser_SameGenericMessage(t *testing.T) {
 	}
 }
 
+// TestLogin_DisabledAccount_SameGenericMessage verifies a deactivated account
+// cannot log in even with the right password, and gets the same response as a
+// wrong password so its existence is not revealed.
+func TestLogin_DisabledAccount_SameGenericMessage(t *testing.T) {
+	admin := adminToken(t)
+	hosID := createHospital(t, admin)
+	wardID := createWard(t, admin, hosID)
+	user := createUser(t, admin, wardID)
+
+	if resp, env := doJSON(t, http.MethodPut, "/user/"+user.ID, map[string]any{
+		"status": false,
+	}, admin); resp.StatusCode != http.StatusOK {
+		t.Fatalf("deactivate user: status %d, message %q", resp.StatusCode, env.Message)
+	}
+
+	respDisabled, envDisabled := doJSON(t, http.MethodPost, "/login", map[string]string{
+		"username": user.Username,
+		"password": user.Password,
+	}, "")
+	respWrongPass, envWrongPass := doJSON(t, http.MethodPost, "/login", map[string]string{
+		"username": user.Username,
+		"password": "wrong-password-1234",
+	}, "")
+
+	if respDisabled.StatusCode != http.StatusUnauthorized {
+		t.Errorf("disabled account: status = %d, want 401", respDisabled.StatusCode)
+	}
+	if envDisabled.Message != envWrongPass.Message {
+		t.Errorf("messages differ (%q vs %q); a disabled account must look like a wrong password",
+			envDisabled.Message, envWrongPass.Message)
+	}
+	if respWrongPass.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong password: status = %d, want 401", respWrongPass.StatusCode)
+	}
+}
+
 // TestLogin_RateLimited exhausts the per-IP limiter (10/min) on /auth/login
 // and expects the 11th request within the window to be rejected with 429.
 // Run in its own test (not a subtest sharing state with others) because it

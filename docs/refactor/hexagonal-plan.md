@@ -41,8 +41,8 @@
 - [x] test ข้ามโรงพยาบาล → 403/404 ทุก endpoint ที่แตะ
 
 ### S4 — บัญชีที่ถูกปิดยัง login ได้ (H3, High)
-- [ ] `authService.ValidateUser`: ถ้า `!user.Status` → `nil, nil` (handler ตอบ "Invalid username or password" เหมือนรหัสผิด) โดยยังทำ bcrypt compare ให้เวลาเท่าเดิม
-- [ ] test ใน `auth_service_test.go` + e2e `auth_login_test.go`
+- [x] `authService.ValidateUser`: ถ้า `!user.Status` → `nil, nil` (handler ตอบ "Invalid username or password" เหมือนรหัสผิด) โดยยังทำ bcrypt compare ให้เวลาเท่าเดิม
+- [x] test ใน `auth_service_test.go` + e2e `auth_login_test.go`
 
 ### S5 — Rate limit หลัง KrakenD (M1, Medium)
 - [ ] `config.Config` เพิ่ม `TrustedProxies []string` จาก env `TRUSTED_PROXIES` (comma-separated CIDR)

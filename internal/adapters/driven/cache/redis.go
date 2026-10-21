@@ -2,6 +2,9 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/efangly/smtrack-authentication/config"
@@ -34,24 +37,38 @@ func NewRedisAdapter(cfg *config.Config) ports.CachePort {
 	return &redisAdapter{client: client}
 }
 
-func (r *redisAdapter) Set(ctx context.Context, key string, value string, expireSeconds int) error {
-	return r.client.Set(ctx, key, value, time.Duration(expireSeconds)*time.Second).Err()
-}
-
-func (r *redisAdapter) Get(ctx context.Context, key string) (string, error) {
-	val, err := r.client.Get(ctx, key).Result()
-	if err == redis.Nil {
-		return "", nil
+// Values are stored as JSON.
+func (r *redisAdapter) Set(ctx context.Context, key string, v any, ttl time.Duration) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("cache encode %s: %w", key, err)
 	}
-	return val, err
+	if err := r.client.Set(ctx, key, data, ttl).Err(); err != nil {
+		return fmt.Errorf("cache set %s: %w", key, err)
+	}
+	return nil
 }
 
-// Del removes every key starting with pattern. It uses SCAN rather than KEYS
+func (r *redisAdapter) Get(ctx context.Context, key string, dest any) (bool, error) {
+	data, err := r.client.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("cache get %s: %w", key, err)
+	}
+	if err := json.Unmarshal(data, dest); err != nil {
+		return false, fmt.Errorf("cache decode %s: %w", key, err)
+	}
+	return true, nil
+}
+
+// Del removes every key starting with prefix. It uses SCAN rather than KEYS
 // so a large keyspace does not block the Redis server.
-func (r *redisAdapter) Del(ctx context.Context, pattern string) error {
+func (r *redisAdapter) Del(ctx context.Context, prefix string) error {
 	var cursor uint64
 	for {
-		keys, next, err := r.client.Scan(ctx, cursor, pattern+"*", scanBatchSize).Result()
+		keys, next, err := r.client.Scan(ctx, cursor, prefix+"*", scanBatchSize).Result()
 		if err != nil {
 			return err
 		}

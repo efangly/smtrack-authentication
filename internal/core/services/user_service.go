@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -76,20 +75,16 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *dom
 
 	// Clear cache
 	s.cache.Del(ctx, "user")
-	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionCreate, result.ID, caller, result)
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionCreate, result.ID, caller, result.WithoutSecrets())
 	return result, nil
 }
 
 func (s *userService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.User, error) {
 	filter, key := buildUserFilter(caller)
 
-	// Check cache
-	cached, err := s.cache.Get(ctx, key)
-	if err == nil && cached != "" {
-		var users []domain.User
-		if err := json.Unmarshal([]byte(cached), &users); err == nil {
-			return users, nil
-		}
+	var cached []domain.User
+	if hit, err := s.cache.Get(ctx, key, &cached); err == nil && hit {
+		return cached, nil
 	}
 
 	users, err := s.repo.FindAll(ctx, filter)
@@ -98,8 +93,7 @@ func (s *userService) FindAll(ctx context.Context, caller *domain.Actor) ([]doma
 	}
 
 	if len(users) > 0 {
-		data, _ := json.Marshal(users)
-		s.cache.Set(ctx, key, string(data), 3600*10)
+		s.cache.Set(ctx, key, domain.UsersWithoutSecrets(users), listTTL)
 	}
 
 	return users, nil
@@ -126,12 +120,9 @@ func (s *userService) FindOne(ctx context.Context, id string, caller *domain.Act
 func (s *userService) findOneCached(ctx context.Context, id string) (*domain.User, error) {
 	cacheKey := fmt.Sprintf("user:%s", id)
 
-	cached, err := s.cache.Get(ctx, cacheKey)
-	if err == nil && cached != "" {
-		var user domain.User
-		if err := json.Unmarshal([]byte(cached), &user); err == nil {
-			return &user, nil
-		}
+	var cached domain.User
+	if hit, err := s.cache.Get(ctx, cacheKey, &cached); err == nil && hit {
+		return &cached, nil
 	}
 
 	user, err := s.repo.FindByID(ctx, id)
@@ -142,8 +133,7 @@ func (s *userService) findOneCached(ctx context.Context, id string) (*domain.Use
 		return nil, errors.New("user not found")
 	}
 
-	data, _ := json.Marshal(user)
-	s.cache.Set(ctx, cacheKey, string(data), 3600*24)
+	s.cache.Set(ctx, cacheKey, user.WithoutSecrets(), itemTTL)
 
 	return user, nil
 }
@@ -153,9 +143,8 @@ func (s *userService) FindByID(ctx context.Context, id string) (*domain.User, er
 }
 
 func (s *userService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
-	// Do not use cache here: domain.User.Password has json:"-" so it would be
-	// lost on marshal/unmarshal, causing the password comparison to always
-	// fail on cached reads.
+	// Uncached on purpose: cached users have their password hash stripped, and
+	// the auth flows need it.
 	user, err := s.repo.FindByUsername(ctx, username)
 	if err != nil {
 		return nil, err
@@ -259,7 +248,7 @@ func (s *userService) Remove(ctx context.Context, id string, caller *domain.Acto
 		s.cache.Del(ctx, fmt.Sprintf("user:%s", user.Username))
 	}
 
-	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionDelete, id, caller, user)
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionDelete, id, caller, user.WithoutSecrets())
 	return user, nil
 }
 

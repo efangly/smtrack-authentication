@@ -2,7 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
@@ -89,37 +92,44 @@ func (m *mockHospitalRepo) Delete(ctx context.Context, id string) (*domain.Hospi
 
 // --- Mock CachePort ---
 type mockCache struct {
-	store map[string]string
-	SetFn func(ctx context.Context, key string, value string, expireSeconds int) error
-	GetFn func(ctx context.Context, key string) (string, error)
-	DelFn func(ctx context.Context, pattern string) error
+	// stored keeps exactly what each Set received, so tests can inspect it.
+	stored  map[string]any
+	ttls    map[string]time.Duration
+	deleted []string
 }
 
 func newMockCache() *mockCache {
-	m := &mockCache{store: make(map[string]string)}
-	m.SetFn = func(_ context.Context, key, value string, _ int) error {
-		m.store[key] = value
-		return nil
-	}
-	m.GetFn = func(_ context.Context, key string) (string, error) {
-		v, ok := m.store[key]
-		if !ok {
-			return "", context.Canceled // simulate cache miss
-		}
-		return v, nil
-	}
-	m.DelFn = func(_ context.Context, _ string) error { return nil }
-	return m
+	return &mockCache{stored: map[string]any{}, ttls: map[string]time.Duration{}}
 }
 
-func (m *mockCache) Set(ctx context.Context, key string, value string, expireSeconds int) error {
-	return m.SetFn(ctx, key, value, expireSeconds)
+func (m *mockCache) Set(_ context.Context, key string, v any, ttl time.Duration) error {
+	m.stored[key] = v
+	m.ttls[key] = ttl
+	return nil
 }
-func (m *mockCache) Get(ctx context.Context, key string) (string, error) {
-	return m.GetFn(ctx, key)
+
+// Get round-trips through JSON, as the Redis adapter does, so a hit returns a
+// copy rather than the stored value itself.
+func (m *mockCache) Get(_ context.Context, key string, dest any) (bool, error) {
+	v, ok := m.stored[key]
+	if !ok {
+		return false, nil
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal(data, dest)
 }
-func (m *mockCache) Del(ctx context.Context, pattern string) error {
-	return m.DelFn(ctx, pattern)
+
+func (m *mockCache) Del(_ context.Context, prefix string) error {
+	m.deleted = append(m.deleted, prefix)
+	for key := range m.stored {
+		if strings.HasPrefix(key, prefix) {
+			delete(m.stored, key)
+		}
+	}
+	return nil
 }
 
 // --- Mock MessagingPort ---

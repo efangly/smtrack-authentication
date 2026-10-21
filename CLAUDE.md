@@ -63,7 +63,9 @@ method → handler → route in `router.go`.
 - **Cache keys** are prefixes: `user`, `user:<id>`, `user:<hosId>`, `ward…`, `hospital…`.
   `CachePort.Del` deletes by *prefix* (SCAN-based), so `Del(ctx, "user")` clears every
   user key. Anything that changes a ward or hospital must also invalidate `user`, because
-  user listings preload their ward.
+  user listings preload their ward (ADR 0002). Services pass values to `CachePort`; the
+  Redis adapter owns the JSON encoding. TTLs are `listTTL` / `itemTTL` in
+  `services/cache_ttl.go`.
 - **Errors:** domain errors are created with `errors.New` / `fmt.Errorf` **without** `%w`;
   infrastructure errors are always wrapped with `%w` at the adapter boundary. The HTTP
   layer relies on this — `handlers.serviceError` returns the message verbatim for
@@ -119,6 +121,10 @@ These were bugs once. Do not regress them.
 - **Refresh rebuilds claims from the database** (`authService.RefreshTokens`), never by
   copying the old token's claims, so a demoted or deactivated user loses access at the next
   refresh instead of keeping it for the token's remaining lifetime.
+- **No password hash leaves the service.** Every user written to the cache or into an
+  audit snapshot goes through `domain.User.WithoutSecrets()` (or `UsersWithoutSecrets`)
+  first — don't rely on `json:"-"`, which disappears with Phase 6. That is also why
+  `FindByID` / `FindByUsername` are uncached: the auth flows need the hash.
 - **`pic` / `hosPic` cannot be set from a request body**, only by uploading an image.
   Accepting a URL let a user point their record at someone else's file, which the next
   upload then deleted from the image service.

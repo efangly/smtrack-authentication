@@ -107,11 +107,13 @@
 
 ## Phase 5 — Cache codec + ไม่เก็บ secret ลง cache (L7)
 
-- [ ] `CachePort`: `Get(ctx, key string, dest any) (hit bool, err error)`, `Set(ctx, key string, v any, ttl time.Duration) error`, `Del(ctx, prefix string) error`
-- [ ] Redis adapter เป็นฝ่าย JSON encode/decode
-- [ ] `domain.User.WithoutSecrets() User` — เรียกก่อน `Set` ทุกครั้ง; unit test ยืนยันว่า payload ที่ส่งเข้า `Set` ไม่มี hash
-- [ ] ลบ `encoding/json` ออกจาก services (ยกเว้น audit ถ้ายังต้อง marshal changes — พิจารณาให้ `AuditRepository` รับ `any` แล้ว adapter marshal)
-- [ ] TTL เป็นค่าคงที่ `time.Duration` ที่มีชื่อ (`listTTL = 10*time.Hour`, `itemTTL = 24*time.Hour`)
+- [x] `CachePort`: `Get(ctx, key, dest any) (hit bool, err error)`, `Set(ctx, key, v any, ttl time.Duration) error`, `Del(ctx, prefix) error`
+- [x] Redis adapter เป็นฝ่าย JSON encode/decode (error ถูก wrap `%w`)
+- [x] `domain.User.WithoutSecrets()` / `domain.UsersWithoutSecrets()` (ล้าง hash ของ user ซ้อนใน ward ด้วย, ไม่แก้ของเดิม) — เรียกก่อน `Set` ทุกครั้ง; เทสต์ยืนยันว่าสิ่งที่ส่งเข้า `Set` ไม่มี hash
+  - [x] **เพิ่ม**: audit snapshot ของ user ตอน CREATE/DELETE ก็ผ่าน `WithoutSecrets()` ด้วย — เดิมพึ่ง `json:"-"` อย่างเดียว ซึ่ง Phase 6 จะถอดออก
+- [x] ลบ `encoding/json` ออกจาก user/ward/hospital services (เหลือใน audit service เพื่อ marshal changes — เป็น stdlib ไม่ผิดกฎ)
+- [x] TTL เป็นค่าคงที่ `listTTL = 10h`, `itemTTL = 24h` (`services/cache_ttl.go`)
+- [x] mock cache เก็บค่าที่ `Set` ได้รับไว้ตรวจ และ decode ผ่าน JSON เหมือน adapter จริง; เพิ่มเทสต์ cascade invalidation ตาม ADR 0002
 
 ## Phase 6 — Persistence model + response DTO; ถอดแท็กออกจาก domain (L1)
 
@@ -121,6 +123,9 @@
 - [ ] ถอดแท็ก `gorm:` และ `json:` ทั้งหมดออกจาก `internal/core/domain/*.go`
 - [ ] golden snapshot จาก Phase 0 ต้องผ่าน **โดยไม่ต้อง `-update`**
 - [ ] ตรวจ AutoMigrate (ถ้ามีใน `postgres.go`) ใช้ model ใหม่และไม่สร้างการเปลี่ยน schema
+- [ ] **cache**: เมื่อถอดแท็ก JSON ใน Redis จะเปลี่ยนรูป (ชื่อ field ของ Go) → เปลี่ยน prefix ของ cache key หรือ flush ตอน deploy มิฉะนั้นค่าเก่าจะ decode ได้ไม่ครบ (เช่น `createAt` ไม่ตรงกับ `CreatedAt`)
+- [ ] **audit**: snapshot ของ CREATE/DELETE ตอนนี้ marshal จาก domain struct ตรงๆ → เมื่อไม่มีแท็กจะได้ชื่อ field แบบ Go ต้องให้ audit ใช้ map/DTO ที่มีชื่อแบบ API เหมือน `*PatchChanges`
+- [ ] **รอแผนปรับโครงสร้าง DB ของ ward** ก่อนเริ่ม phase นี้ เพราะ persistence model + mapper ผูกกับ schema โดยตรง
 
 ## Phase 7 — ปิดงาน
 

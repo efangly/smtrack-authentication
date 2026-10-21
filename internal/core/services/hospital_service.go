@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -69,13 +68,9 @@ func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital,
 func (s *hospitalService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error) {
 	filter, key := buildHospitalFilter(caller)
 
-	// Check cache
-	cached, err := s.cache.Get(ctx, key)
-	if err == nil && cached != "" {
-		var hospitals []domain.Hospital
-		if err := json.Unmarshal([]byte(cached), &hospitals); err == nil {
-			return hospitals, nil
-		}
+	var cached []domain.Hospital
+	if hit, err := s.cache.Get(ctx, key, &cached); err == nil && hit {
+		return cached, nil
 	}
 
 	hospitals, err := s.repo.FindAll(ctx, filter)
@@ -84,8 +79,7 @@ func (s *hospitalService) FindAll(ctx context.Context, caller *domain.Actor) ([]
 	}
 
 	if len(hospitals) > 0 {
-		data, _ := json.Marshal(hospitals)
-		s.cache.Set(ctx, key, string(data), 3600*10)
+		s.cache.Set(ctx, key, hospitals, listTTL)
 	}
 
 	return hospitals, nil

@@ -25,6 +25,28 @@ func (User) TableName() string {
 	return "Users"
 }
 
+// WithoutSecrets returns a copy of u that is safe to store or hand on: the
+// password hash is cleared, including on any users nested under its ward.
+// Use it before caching a user.
+func (u User) WithoutSecrets() User {
+	u.Password = ""
+	if u.Ward != nil && len(u.Ward.Users) > 0 {
+		ward := *u.Ward
+		ward.Users = UsersWithoutSecrets(ward.Users)
+		u.Ward = &ward
+	}
+	return u
+}
+
+// UsersWithoutSecrets applies WithoutSecrets to every user in a new slice.
+func UsersWithoutSecrets(users []User) []User {
+	out := make([]User, len(users))
+	for i, u := range users {
+		out[i] = u.WithoutSecrets()
+	}
+	return out
+}
+
 // UserListItem is a projection for listing users
 type UserListItem struct {
 	ID       string  `json:"id"`

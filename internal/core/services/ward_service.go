@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -62,13 +61,9 @@ func (s *wardService) Create(ctx context.Context, ward *domain.Ward, caller *dom
 func (s *wardService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error) {
 	filter, key := buildWardFilter(caller)
 
-	// Check cache
-	cached, err := s.cache.Get(ctx, key)
-	if err == nil && cached != "" {
-		var wards []domain.Ward
-		if err := json.Unmarshal([]byte(cached), &wards); err == nil {
-			return wards, nil
-		}
+	var cached []domain.Ward
+	if hit, err := s.cache.Get(ctx, key, &cached); err == nil && hit {
+		return cached, nil
 	}
 
 	wards, err := s.repo.FindAll(ctx, filter)
@@ -77,8 +72,7 @@ func (s *wardService) FindAll(ctx context.Context, caller *domain.Actor) ([]doma
 	}
 
 	if len(wards) > 0 {
-		data, _ := json.Marshal(wards)
-		s.cache.Set(ctx, key, string(data), 3600*10)
+		s.cache.Set(ctx, key, wards, listTTL)
 	}
 
 	return wards, nil

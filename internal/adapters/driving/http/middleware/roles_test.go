@@ -19,15 +19,8 @@ func setupRolesApp(allowedRoles ...domain.Role) *fiber.App {
 		// Simulate JWT auth middleware having run
 		tokenStr := c.Get("X-Test-Token")
 		if tokenStr != "" {
-			token, _ := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
-				return []byte(testJWTSecret), nil
-			})
-			if token != nil && token.Valid {
-				claims := token.Claims.(jwt.MapClaims)
-				c.Locals("user", &domain.Actor{
-					ID:   getString(claims, "id"),
-					Role: domain.Role(getString(claims, "role")),
-				})
+			if actor, err := testIssuer().VerifyAccess(tokenStr); err == nil {
+				c.Locals("user", actor)
 			}
 		}
 		return c.Next()

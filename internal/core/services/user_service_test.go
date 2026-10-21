@@ -9,7 +9,6 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func newTestUserService(repo *mockUserRepo) (ports.UserService, *mockCache, *mockUpload) {
@@ -21,7 +20,7 @@ func newTestUserServiceWithWards(repo *mockUserRepo) (ports.UserService, *mockCa
 	cache := newMockCache()
 	upload := newMockUpload()
 	wards := &mockWardRepo{}
-	svc := NewUserService(repo, wards, cache, upload, newMockAuditService())
+	svc := NewUserService(repo, wards, cache, upload, &fakeHasher{}, newMockAuditService())
 	return svc, cache, upload, wards
 }
 
@@ -97,8 +96,7 @@ func TestUserService_Create_HashesPassword(t *testing.T) {
 	// Create is the single place that hashes on this path (Register hashes
 	// nothing itself — it relies on this), so every caller must see a hash,
 	// never the plain value it sent in.
-	assert.NotEqual(t, "pass1234", user.Password)
-	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(user.Password), []byte("pass1234")))
+	assert.Equal(t, fakeHash("pass1234"), user.Password)
 }
 
 func TestUserService_Create_RepoError(t *testing.T) {

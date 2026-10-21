@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/efangly/smtrack-authentication/config"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driven/security"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/handlers"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
@@ -73,7 +74,7 @@ func testConfig() *config.Config {
 func newTestRouterCfg(cfg *config.Config, wardSvc ports.WardService, auditSvc ports.AuditService) *fiber.App {
 	// Same validator as main.go, so invalid bodies stop at the handler.
 	app := fiber.New(fiber.Config{StructValidator: validator.Validator{}})
-	NewRouter(app, cfg,
+	NewRouter(app, cfg, security.NewJWTIssuer(cfg),
 		handlers.NewAuthHandler(nil),
 		handlers.NewUserHandler(nil),
 		handlers.NewHospitalHandler(nil),

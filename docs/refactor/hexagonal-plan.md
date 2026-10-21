@@ -73,17 +73,16 @@
 
 ## Phase 2 — Security ports: token + password hasher (L2, L3, L2-sec, L4-sec)
 
-- [ ] `ports/security.go`:
-  - `TokenIssuer`: `IssuePair(ctx, domain.Actor) (domain.TokenPair, error)`, `VerifyAccess(token string) (*domain.Actor, error)`, `VerifyRefresh(token string) (userID string, error)`
-  - `PasswordHasher`: `Hash(plain string) (string, error)`, `Compare(hash, plain string) bool`
-- [ ] `internal/adapters/driven/security/jwt.go` — สร้างจาก secret + TTL (ย้าย `parseDuration` มาด้วย); เพิ่ม claim `typ: access|refresh` และตรวจตอน verify (ปิด L2)
-- [ ] `internal/adapters/driven/security/bcrypt.go` — cost 10, dummy hash สำหรับ timing (ย้าย `dummyHash` มา, เพิ่ม `CompareDummy(plain)` หรือให้ `Compare("", plain)` ทำ dummy)
-- [ ] `authService` รับ `TokenIssuer`, `PasswordHasher` แทน `*config.Config`; ลบการเช็ค secret ว่างที่ตายแล้ว (`config.Load` fatal ให้แล้ว)
-- [ ] `userService` รับ `PasswordHasher`; hash ยังเกิดที่ `Create`/`Update` เท่านั้น (invariant เดิม)
-- [ ] `LoginResult`/`RefreshResult` → type ใน core ไม่มีแท็ก; รูปร่าง JSON ย้ายไป `dto/auth.go` (`LoginResponse`, `RefreshResponse`)
-- [ ] `middleware.JWTAuth` / `RefreshJWTAuth` รับ `ports.TokenIssuer` แทน secret string; `router.go` ไม่ต้องรู้ secret
-- [ ] invalid refresh token → domain error (ไม่ wrap) → 401 (ปิด L4)
-- [ ] ลบ allowlist `golang-jwt`, `bcrypt`, `config` ออกจาก arch test
+- [x] `ports/security.go`: `TokenIssuer` (`IssuePair(domain.Actor) (TokenPair, error)` — ไม่มี ctx เพราะไม่ใช้, `VerifyAccess`, `VerifyRefresh`) และ `PasswordHasher` (`Hash`, `Compare`, `CompareDummy`)
+- [x] `adapters/driven/security/jwt.go` — secret + TTL จาก config, ย้าย `parseDuration` มา; claim `typ: access|refresh` ตรวจตอน verify (ปิด L2)
+  - [ ] **release ถัดไป**: ปฏิเสธ token ที่ไม่มี `typ` (ตอนนี้ยอมรับไว้ เพื่อไม่ให้ทุกคนหลุด login ตอน deploy) — ทำได้หลัง deploy นี้ผ่านไป ≥ `REFRESH_EXPIRE_TIME`
+- [x] `adapters/driven/security/bcrypt.go` — cost 10, dummy hash ผ่าน `CompareDummy`
+- [x] `authService` รับ `TokenIssuer`, `PasswordHasher` แทน `*config.Config`; ลบการเช็ค secret ว่างที่ตายแล้ว
+- [x] `userService` รับ `PasswordHasher`; hash ยังเกิดที่ `Create`/`Update` เท่านั้น
+- [x] `LoginResult`/`RefreshResult` ไม่มีแท็กแล้ว; JSON อยู่ที่ `dto.LoginResponse` / `dto.RefreshResponse` (golden ผ่านโดยไม่ต้อง update)
+- [x] `middleware.JWTAuth` / `RefreshJWTAuth` รับ `ports.TokenIssuer`; `router.go` ไม่รู้ secret
+- [x] invalid refresh token → domain error → 401 (ปิด L4)
+- [x] ลบ allowlist `golang-jwt`, `bcrypt`, `config` ออกจาก arch test
 
 ## Phase 3 — `domain.File` แทน multipart (L4, M4)
 

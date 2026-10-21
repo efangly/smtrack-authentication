@@ -29,6 +29,7 @@ internal/
     │   ├── cache/             # Redis adapter
     │   ├── database/          # PostgreSQL repositories
     │   ├── messaging/         # RabbitMQ adapter
+    │   ├── security/          # JWT issuer + bcrypt password hasher
     │   └── upload/            # File upload adapter
     └── driving/               # Inbound adapters (HTTP)
         └── http/

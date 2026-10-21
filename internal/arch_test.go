@@ -45,11 +45,8 @@ var layerRules = map[string][]string{
 
 // importAllowlist maps "package -> import" to the phase that removes it.
 var importAllowlist = map[string]string{
-	"internal/core/ports -> mime/multipart":                  "Phase 3",
-	"internal/core/services -> mime/multipart":               "Phase 3",
-	"internal/core/services -> config":                       "Phase 2",
-	"internal/core/services -> github.com/golang-jwt/jwt/v5": "Phase 2",
-	"internal/core/services -> golang.org/x/crypto/bcrypt":   "Phase 2",
+	"internal/core/ports -> mime/multipart":    "Phase 3",
+	"internal/core/services -> mime/multipart": "Phase 3",
 }
 
 // tagAllowlist maps a domain file to the phase that strips its gorm/json tags.

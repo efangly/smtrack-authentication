@@ -51,7 +51,7 @@ func (h *AuthHandler) Login(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusInternalServerError, err)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(result))
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromLoginResult(result)))
 }
 
 func (h *AuthHandler) RefreshToken(c fiber.Ctx) error {
@@ -67,7 +67,7 @@ func (h *AuthHandler) RefreshToken(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusUnauthorized, err)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(result))
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromRefreshResult(result)))
 }
 
 func (h *AuthHandler) ResetPassword(c fiber.Ctx) error {

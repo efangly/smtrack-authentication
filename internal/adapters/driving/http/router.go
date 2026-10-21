@@ -8,6 +8,7 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/handlers"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/middleware"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
@@ -16,6 +17,7 @@ import (
 type Router struct {
 	app             *fiber.App
 	cfg             *config.Config
+	tokens          ports.TokenIssuer
 	authHandler     *handlers.AuthHandler
 	userHandler     *handlers.UserHandler
 	hospitalHandler *handlers.HospitalHandler
@@ -27,6 +29,7 @@ type Router struct {
 func NewRouter(
 	app *fiber.App,
 	cfg *config.Config,
+	tokens ports.TokenIssuer,
 	authHandler *handlers.AuthHandler,
 	userHandler *handlers.UserHandler,
 	hospitalHandler *handlers.HospitalHandler,
@@ -37,6 +40,7 @@ func NewRouter(
 	return &Router{
 		app:             app,
 		cfg:             cfg,
+		tokens:          tokens,
 		authHandler:     authHandler,
 		userHandler:     userHandler,
 		hospitalHandler: hospitalHandler,
@@ -71,16 +75,16 @@ func (r *Router) Setup() {
 	auth.Post("/login", publicLimiter, r.authHandler.Login)
 
 	// Refresh token route (requires refresh JWT)
-	auth.Post("/refresh", middleware.RefreshJWTAuth(r.cfg.JWTRefreshSecret), r.authHandler.RefreshToken)
+	auth.Post("/refresh", middleware.RefreshJWTAuth(r.tokens), r.authHandler.RefreshToken)
 
 	// Reset password (requires JWT). The path parameter is a username, not an id.
-	auth.Patch("/reset/:username", middleware.JWTAuth(r.cfg.JWTSecret), r.authHandler.ResetPassword)
+	auth.Patch("/reset/:username", middleware.JWTAuth(r.tokens), r.authHandler.ResetPassword)
 
 	// Health check
 	auth.Get("/health", r.healthHandler.Check)
 
 	// JWT-protected middleware
-	jwtAuth := middleware.JWTAuth(r.cfg.JWTSecret)
+	jwtAuth := middleware.JWTAuth(r.tokens)
 
 	// User routes
 	userGroup := auth.Group("/user", jwtAuth)

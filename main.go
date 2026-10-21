@@ -14,6 +14,7 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/adapters/driven/cache"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driven/database"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driven/messaging"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driven/security"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driven/upload"
 	httpAdapter "github.com/efangly/smtrack-authentication/internal/adapters/driving/http"
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/handlers"
@@ -42,6 +43,8 @@ func main() {
 	redisCache := cache.NewRedisAdapter(cfg)
 	msgAdapter := messaging.NewRabbitMQAdapter(cfg)
 	fileUpload := upload.NewFileUploadAdapter(cfg)
+	tokens := security.NewJWTIssuer(cfg)
+	hasher := security.NewBcryptHasher()
 
 	// Initialize repositories
 	userRepo := database.NewUserRepository(db)
@@ -51,10 +54,10 @@ func main() {
 
 	// Initialize core services (use cases)
 	auditService := services.NewAuditService(auditRepo)
-	userService := services.NewUserService(userRepo, wardRepo, redisCache, fileUpload, auditService)
+	userService := services.NewUserService(userRepo, wardRepo, redisCache, fileUpload, hasher, auditService)
 	wardService := services.NewWardService(wardRepo, redisCache, msgAdapter, auditService)
 	hospitalService := services.NewHospitalService(hospitalRepo, redisCache, fileUpload, msgAdapter, auditService)
-	authService := services.NewAuthService(userService, redisCache, fileUpload, cfg)
+	authService := services.NewAuthService(userService, redisCache, fileUpload, tokens, hasher)
 
 	// Initialize driving adapters (HTTP handlers)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -78,7 +81,7 @@ func main() {
 	app.Use(cors.New())
 
 	// Setup routes
-	router := httpAdapter.NewRouter(app, cfg, authHandler, userHandler, hospitalHandler, wardHandler, auditHandler, healthHandler)
+	router := httpAdapter.NewRouter(app, cfg, tokens, authHandler, userHandler, hospitalHandler, wardHandler, auditHandler, healthHandler)
 	router.Setup()
 
 	// Graceful shutdown

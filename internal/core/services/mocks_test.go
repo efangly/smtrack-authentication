@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"mime/multipart"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
@@ -230,4 +231,37 @@ func (m *mockAuditService) Record(ctx context.Context, entity domain.AuditEntity
 }
 func (m *mockAuditService) FindAll(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
 	return m.FindAllFn(ctx, filter)
+}
+
+// --- Fake PasswordHasher ---
+// Deterministic and instant, so tests can assert on the stored value.
+
+func fakeHash(plain string) string { return "hashed:" + plain }
+
+type fakeHasher struct{ dummyCalls int }
+
+func (h *fakeHasher) Hash(plain string) (string, error) { return fakeHash(plain), nil }
+func (h *fakeHasher) Compare(hash, plain string) bool   { return hash == fakeHash(plain) }
+func (h *fakeHasher) CompareDummy(string)               { h.dummyCalls++ }
+
+// --- Fake TokenIssuer ---
+
+type fakeTokens struct {
+	issued        []domain.Actor
+	refreshUserID string
+	refreshErr    error
+}
+
+func (f *fakeTokens) IssuePair(actor domain.Actor) (ports.TokenPair, error) {
+	f.issued = append(f.issued, actor)
+	return ports.TokenPair{
+		Access:  "access:" + actor.ID + ":" + string(actor.Role),
+		Refresh: "refresh:" + actor.ID,
+	}, nil
+}
+func (f *fakeTokens) VerifyAccess(string) (*domain.Actor, error) {
+	return nil, errors.New("not used by the services")
+}
+func (f *fakeTokens) VerifyRefresh(string) (string, error) {
+	return f.refreshUserID, f.refreshErr
 }

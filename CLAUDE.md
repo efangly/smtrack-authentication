@@ -38,8 +38,8 @@ Hexagonal (ports & adapters). The layer map is in `README.md`; what matters when
 - **`internal/core/`** must not import anything from `internal/adapters/` or from Fiber.
   Business rules live in `core/services/`, contracts in `core/ports/`.
 - **`core/ports/`** defines both driving ports (`services.go` — what the HTTP layer calls)
-  and driven ports (`repositories.go`, `cache.go`, `upload.go`, `messaging.go` — what the
-  services call). Adapters implement these; nothing else may be depended on directly.
+  and driven ports (`repositories.go`, `cache.go`, `upload.go`, `messaging.go`,
+  `security.go` — what the services call). Adapters implement these; nothing else may be depended on directly.
 - **`internal/adapters/driving/http/`** is the only place that knows about Fiber.
   Handlers translate HTTP ↔ DTO ↔ domain and enforce request-level authorization.
 - Wiring happens exclusively in `main.go`. Constructors return port interfaces, not structs.
@@ -77,7 +77,8 @@ These were bugs once. Do not regress them.
   which forces `role=GUEST` and ignores `id`/`status`/`createBy` from the body. Never use
   `ToUser()` there — that path is only for the authenticated, role-guarded `POST /auth/user`.
 - **Passwords are hashed in exactly two places:** `userService.Create` and
-  `userService.Update`. `authService.Register` passes the plain password straight through to
+  `userService.Update`, through `ports.PasswordHasher` (bcrypt adapter in
+  `adapters/driven/security`). `authService.Register` passes the plain password straight through to
   `Create` — it does not hash its own copy. Any map reaching `userService.Update` with a
   `password` key holds the *plain* value and gets hashed there. `UpdateUserRequest`
   deliberately has no password field — password changes go through `PATCH /auth/reset/:username`.
@@ -106,6 +107,10 @@ These were bugs once. Do not regress them.
 - **A deactivated account (`status=false`) cannot log in.** `authService.ValidateUser`
   rejects it *after* the bcrypt comparison and returns the same `nil, nil` as a wrong
   password, so neither the message nor the timing reveals that the account exists.
+- **Access and refresh tokens are not interchangeable.** They use different secrets and a
+  `typ` claim checked by `adapters/driven/security/jwt.go`. Tokens without `typ` (issued
+  before it existed) are still accepted; remove that allowance once one
+  `REFRESH_EXPIRE_TIME` has passed since it shipped (see the TODO there).
 - **Refresh rebuilds claims from the database** (`authService.RefreshTokens`), never by
   copying the old token's claims, so a demoted or deactivated user loses access at the next
   refresh instead of keeping it for the token's remaining lifetime.

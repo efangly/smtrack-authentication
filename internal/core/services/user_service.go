@@ -13,7 +13,6 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type userService struct {
@@ -21,12 +20,13 @@ type userService struct {
 	wardRepo ports.WardRepository
 	cache    ports.CachePort
 	upload   ports.FileUploadPort
+	hasher   ports.PasswordHasher
 	audit    ports.AuditService
 }
 
 // NewUserService creates a new user service
-func NewUserService(repo ports.UserRepository, wardRepo ports.WardRepository, cache ports.CachePort, upload ports.FileUploadPort, audit ports.AuditService) ports.UserService {
-	return &userService{repo: repo, wardRepo: wardRepo, cache: cache, upload: upload, audit: audit}
+func NewUserService(repo ports.UserRepository, wardRepo ports.WardRepository, cache ports.CachePort, upload ports.FileUploadPort, hasher ports.PasswordHasher, audit ports.AuditService) ports.UserService {
+	return &userService{repo: repo, wardRepo: wardRepo, cache: cache, upload: upload, hasher: hasher, audit: audit}
 }
 
 func (s *userService) Create(ctx context.Context, user *domain.User, caller *domain.Actor) (*domain.User, error) {
@@ -56,15 +56,15 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *dom
 	}
 	user.Username = strings.ToLower(user.Username)
 
-	// Every path into Create carries a plain-text password (authService.Register
-	// hashes its own copy separately via ToPublicUser, but the authenticated
-	// POST /auth/user path reaches here directly), so it must be hashed here —
-	// mirroring the password branch in Update.
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcryptCost)
+	// Every path into Create carries a plain-text password — both the public
+	// register flow (authService.Register passes it straight through) and the
+	// authenticated POST /auth/user — so it must be hashed here, mirroring the
+	// password branch in Update.
+	hashedPassword, err := s.hasher.Hash(user.Password)
 	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+		return nil, err
 	}
-	user.Password = string(hashedPassword)
+	user.Password = hashedPassword
 
 	now := time.Now()
 	user.CreatedAt = now
@@ -155,8 +155,8 @@ func (s *userService) FindByID(ctx context.Context, id string) (*domain.User, er
 
 func (s *userService) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	// Do not use cache here: domain.User.Password has json:"-" so it would be
-	// lost on marshal/unmarshal, causing bcrypt comparison to always fail on
-	// cached reads.
+	// lost on marshal/unmarshal, causing the password comparison to always
+	// fail on cached reads.
 	user, err := s.repo.FindByUsername(ctx, username)
 	if err != nil {
 		return nil, err
@@ -214,11 +214,11 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 		if !ok || plain == "" {
 			return nil, errors.New("invalid password")
 		}
-		hashed, err := bcrypt.GenerateFromPassword([]byte(plain), bcryptCost)
+		hashed, err := s.hasher.Hash(plain)
 		if err != nil {
-			return nil, fmt.Errorf("failed to hash password: %w", err)
+			return nil, err
 		}
-		data["password"] = string(hashed)
+		data["password"] = hashed
 	}
 
 	data["updateAt"] = time.Now()

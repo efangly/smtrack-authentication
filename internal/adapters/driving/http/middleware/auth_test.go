@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/efangly/smtrack-authentication/config"
+	"github.com/efangly/smtrack-authentication/internal/adapters/driven/security"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
+	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +23,12 @@ const (
 	testJWTSecret     = "test-jwt-secret"
 	testRefreshSecret = "test-refresh-secret"
 )
+
+// testIssuer is the real JWT adapter, so these tests cover token -> actor
+// end to end.
+func testIssuer() ports.TokenIssuer {
+	return security.NewJWTIssuer(&config.Config{JWTSecret: testJWTSecret, JWTRefreshSecret: testRefreshSecret})
+}
 
 func createTestToken(secret string, claims jwt.MapClaims) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -43,7 +52,7 @@ func validClaims() jwt.MapClaims {
 
 func TestJWTAuth_ValidToken(t *testing.T) {
 	app := fiber.New()
-	app.Use(JWTAuth(testJWTSecret))
+	app.Use(JWTAuth(testIssuer()))
 	app.Get("/test", func(c fiber.Ctx) error {
 		payload := c.Locals("user").(*domain.Actor)
 		return c.JSON(fiber.Map{
@@ -69,7 +78,7 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 
 func TestJWTAuth_MissingHeader(t *testing.T) {
 	app := fiber.New()
-	app.Use(JWTAuth(testJWTSecret))
+	app.Use(JWTAuth(testIssuer()))
 	app.Get("/test", func(c fiber.Ctx) error {
 		return c.SendString("ok")
 	})
@@ -82,7 +91,7 @@ func TestJWTAuth_MissingHeader(t *testing.T) {
 
 func TestJWTAuth_InvalidFormat(t *testing.T) {
 	app := fiber.New()
-	app.Use(JWTAuth(testJWTSecret))
+	app.Use(JWTAuth(testIssuer()))
 	app.Get("/test", func(c fiber.Ctx) error {
 		return c.SendString("ok")
 	})
@@ -97,7 +106,7 @@ func TestJWTAuth_InvalidFormat(t *testing.T) {
 
 func TestJWTAuth_ExpiredToken(t *testing.T) {
 	app := fiber.New()
-	app.Use(JWTAuth(testJWTSecret))
+	app.Use(JWTAuth(testIssuer()))
 	app.Get("/test", func(c fiber.Ctx) error {
 		return c.SendString("ok")
 	})
@@ -116,7 +125,7 @@ func TestJWTAuth_ExpiredToken(t *testing.T) {
 
 func TestJWTAuth_WrongSecret(t *testing.T) {
 	app := fiber.New()
-	app.Use(JWTAuth(testJWTSecret))
+	app.Use(JWTAuth(testIssuer()))
 	app.Get("/test", func(c fiber.Ctx) error {
 		return c.SendString("ok")
 	})
@@ -134,10 +143,9 @@ func TestJWTAuth_WrongSecret(t *testing.T) {
 
 func TestRefreshJWTAuth_ValidToken(t *testing.T) {
 	app := fiber.New()
-	app.Use(RefreshJWTAuth(testRefreshSecret))
+	app.Use(RefreshJWTAuth(testIssuer()))
 	app.Post("/refresh", func(c fiber.Ctx) error {
-		payload := c.Locals("user").(*domain.Actor)
-		return c.JSON(fiber.Map{"id": payload.ID})
+		return c.SendString("ok")
 	})
 
 	token := createTestToken(testRefreshSecret, validClaims())
@@ -153,7 +161,7 @@ func TestRefreshJWTAuth_ValidToken(t *testing.T) {
 
 func TestRefreshJWTAuth_MissingToken(t *testing.T) {
 	app := fiber.New()
-	app.Use(RefreshJWTAuth(testRefreshSecret))
+	app.Use(RefreshJWTAuth(testIssuer()))
 	app.Post("/refresh", func(c fiber.Ctx) error {
 		return c.SendString("ok")
 	})
@@ -168,7 +176,7 @@ func TestRefreshJWTAuth_MissingToken(t *testing.T) {
 
 func TestRefreshJWTAuth_InvalidToken(t *testing.T) {
 	app := fiber.New()
-	app.Use(RefreshJWTAuth(testRefreshSecret))
+	app.Use(RefreshJWTAuth(testIssuer()))
 	app.Post("/refresh", func(c fiber.Ctx) error {
 		return c.SendString("ok")
 	})
@@ -182,16 +190,38 @@ func TestRefreshJWTAuth_InvalidToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-// --- getString helper ---
+func TestRefreshJWTAuth_RejectsAccessToken(t *testing.T) {
+	app := fiber.New()
+	app.Use(RefreshJWTAuth(testIssuer()))
+	app.Post("/refresh", func(c fiber.Ctx) error { return c.SendString("ok") })
 
-func TestGetString(t *testing.T) {
-	claims := jwt.MapClaims{
-		"id":   "test-id",
-		"num":  float64(123),
-		"null": nil,
+	pair, err := testIssuer().IssuePair(domain.Actor{ID: "U1", Role: domain.RoleAdmin})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/refresh", strings.NewReader(`{"token":"`+pair.Access+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+func TestJWTAuth_MessagesUnchanged(t *testing.T) {
+	app := fiber.New()
+	app.Use(JWTAuth(testIssuer()))
+	app.Get("/test", func(c fiber.Ctx) error { return c.SendString("ok") })
+
+	for header, want := range map[string]string{
+		"":             `{"message":"Missing authorization header","statusCode":401}`,
+		"Token abc":    `{"message":"Invalid authorization header format","statusCode":401}`,
+		"Bearer bogus": `{"message":"Invalid or expired token","statusCode":401}`,
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		if header != "" {
+			req.Header.Set("Authorization", header)
+		}
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		body, _ := io.ReadAll(resp.Body)
+		assert.JSONEq(t, want, string(body), header)
 	}
-	assert.Equal(t, "test-id", getString(claims, "id"))
-	assert.Equal(t, "", getString(claims, "num"))    // not a string
-	assert.Equal(t, "", getString(claims, "null"))   // nil
-	assert.Equal(t, "", getString(claims, "absent")) // missing key
 }

@@ -7,22 +7,24 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 )
 
-// LoginResult represents the result of a login operation
+// LoginResult represents the result of a login operation. Its JSON shape is
+// dto.LoginResponse.
 type LoginResult struct {
-	Token        string  `json:"token"`
-	RefreshToken string  `json:"refreshToken"`
-	ID           string  `json:"id"`
-	Name         *string `json:"name"`
-	HosID        string  `json:"hosId"`
-	WardID       string  `json:"wardId"`
-	Role         string  `json:"role"`
-	Pic          *string `json:"pic"`
+	Token        string
+	RefreshToken string
+	ID           string
+	Name         *string
+	HosID        string
+	WardID       string
+	Role         domain.Role
+	Pic          *string
 }
 
-// RefreshResult represents the result of a token refresh
+// RefreshResult represents the result of a token refresh. Its JSON shape is
+// dto.RefreshResponse.
 type RefreshResult struct {
-	Token        string `json:"token"`
-	RefreshToken string `json:"refreshToken"`
+	Token        string
+	RefreshToken string
 }
 
 // AuthService defines the driving port for authentication use cases

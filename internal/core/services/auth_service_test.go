@@ -6,26 +6,24 @@ import (
 	"mime/multipart"
 	"testing"
 
-	"github.com/efangly/smtrack-authentication/config"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func newTestAuthService(userSvc *mockUserService) (ports.AuthService, *mockCache, *mockUpload) {
+	svc, cache, upload, _, _ := newTestAuthServiceFull(userSvc)
+	return svc, cache, upload
+}
+
+func newTestAuthServiceFull(userSvc *mockUserService) (ports.AuthService, *mockCache, *mockUpload, *fakeTokens, *fakeHasher) {
 	cache := newMockCache()
 	upload := newMockUpload()
-	cfg := &config.Config{
-		JWTSecret:         "test-secret",
-		JWTRefreshSecret:  "test-refresh-secret",
-		ExpireTime:        "1h",
-		RefreshExpireTime: "7d",
-	}
-	svc := NewAuthService(userSvc, cache, upload, cfg)
-	return svc, cache, upload
+	tokens := &fakeTokens{}
+	hasher := &fakeHasher{}
+	svc := NewAuthService(userSvc, cache, upload, tokens, hasher)
+	return svc, cache, upload, tokens, hasher
 }
 
 // --- Register ---
@@ -99,10 +97,10 @@ func TestAuthService_Register_WithFile(t *testing.T) {
 // --- ValidateUser ---
 
 func TestAuthService_ValidateUser_Success(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("correct"), 10)
+	hashed := fakeHash("correct")
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Password: string(hashed), Status: true}, nil
+			return &domain.User{ID: "U1", Password: hashed, Status: true}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
@@ -114,10 +112,10 @@ func TestAuthService_ValidateUser_Success(t *testing.T) {
 }
 
 func TestAuthService_ValidateUser_WrongPassword(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("correct"), 10)
+	hashed := fakeHash("correct")
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Password: string(hashed)}, nil
+			return &domain.User{ID: "U1", Password: hashed}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
@@ -133,18 +131,20 @@ func TestAuthService_ValidateUser_UserNotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc, _, _ := newTestAuthService(userSvc)
+	svc, _, _, _, hasher := newTestAuthServiceFull(userSvc)
 
 	user, err := svc.ValidateUser(context.Background(), "nobody", "pass")
 	require.NoError(t, err)
 	assert.Nil(t, user)
+	// An unknown username must still cost a hash comparison.
+	assert.Equal(t, 1, hasher.dummyCalls)
 }
 
 func TestAuthService_ValidateUser_DisabledAccount(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("correct"), 10)
+	hashed := fakeHash("correct")
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Password: string(hashed), Status: false}, nil
+			return &domain.User{ID: "U1", Password: hashed, Status: false}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
@@ -159,8 +159,7 @@ func TestAuthService_ValidateUser_DisabledAccount(t *testing.T) {
 // --- Login ---
 
 func TestAuthService_Login_Success(t *testing.T) {
-	userSvc := &mockUserService{}
-	svc, _, _ := newTestAuthService(userSvc)
+	svc, _, _, tokens, _ := newTestAuthServiceFull(&mockUserService{})
 
 	display := "Admin"
 	user := &domain.User{
@@ -173,35 +172,21 @@ func TestAuthService_Login_Success(t *testing.T) {
 
 	result, err := svc.Login(context.Background(), user)
 	require.NoError(t, err)
-	assert.NotEmpty(t, result.Token)
-	assert.NotEmpty(t, result.RefreshToken)
+	assert.Equal(t, "access:U1:ADMIN", result.Token)
+	assert.Equal(t, "refresh:U1", result.RefreshToken)
 	assert.Equal(t, "U1", result.ID)
-	assert.Equal(t, "ADMIN", result.Role)
+	assert.Equal(t, domain.RoleAdmin, result.Role)
 	assert.Equal(t, "H1", result.HosID)
 	assert.Equal(t, "W1", result.WardID)
 
-	// Validate token can be parsed
-	token, err := jwt.Parse(result.Token, func(t *jwt.Token) (any, error) {
-		return []byte("test-secret"), nil
-	})
-	require.NoError(t, err)
-	assert.True(t, token.Valid)
-}
-
-func TestAuthService_Login_MissingSecret(t *testing.T) {
-	cache := newMockCache()
-	upload := newMockUpload()
-	cfg := &config.Config{JWTSecret: "", JWTRefreshSecret: ""}
-	svc := NewAuthService(&mockUserService{}, cache, upload, cfg)
-
-	_, err := svc.Login(context.Background(), &domain.User{ID: "U1"})
-	assert.EqualError(t, err, "authentication configuration error")
+	// The tokens carry the user's identity, with the hospital taken from the ward.
+	require.Len(t, tokens.issued, 1)
+	assert.Equal(t, domain.Actor{ID: "U1", Name: "Admin", Role: domain.RoleAdmin, HosID: "H1", WardID: "W1"}, tokens.issued[0])
 }
 
 // --- RefreshTokens ---
 
 func TestAuthService_RefreshTokens_Success(t *testing.T) {
-	// The new claims come from the current record, not from the old token.
 	userSvc := &mockUserService{
 		FindByIDFn: func(_ context.Context, id string) (*domain.User, error) {
 			return &domain.User{
@@ -213,44 +198,34 @@ func TestAuthService_RefreshTokens_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	svc, _, _ := newTestAuthService(userSvc)
+	svc, _, _, tokens, _ := newTestAuthServiceFull(userSvc)
+	tokens.refreshUserID = "U1"
 
-	// Create a valid refresh token first
-	claims := jwt.MapClaims{
-		"id":     "U1",
-		"name":   "Admin",
-		"role":   "ADMIN",
-		"hosId":  "H1",
-		"wardId": "W1",
-		"exp":    float64(9999999999),
-		"iat":    float64(1000000000),
-	}
-	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenStr, _ := refreshToken.SignedString([]byte("test-refresh-secret"))
-
-	result, err := svc.RefreshTokens(context.Background(), tokenStr)
+	result, err := svc.RefreshTokens(context.Background(), "refresh-token")
 	require.NoError(t, err)
-	assert.NotEmpty(t, result.Token)
-	assert.NotEmpty(t, result.RefreshToken)
+	assert.Equal(t, "access:U1:ADMIN", result.Token)
+	assert.Equal(t, "refresh:U1", result.RefreshToken)
 }
 
 func TestAuthService_RefreshTokens_InvalidToken(t *testing.T) {
-	userSvc := &mockUserService{}
-	svc, _, _ := newTestAuthService(userSvc)
+	svc, _, _, tokens, _ := newTestAuthServiceFull(&mockUserService{})
+	tokens.refreshErr = errors.New("invalid or expired refresh token")
 
 	_, err := svc.RefreshTokens(context.Background(), "invalid-token")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid refresh token")
+	// Passed through unwrapped, so the HTTP layer reports it as a 401 rather
+	// than hiding it behind a generic 500.
+	assert.EqualError(t, err, "invalid or expired refresh token")
+	assert.Nil(t, errors.Unwrap(err))
 }
 
 // --- ResetPassword ---
 
 func TestAuthService_ResetPassword_SuperRole(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 10)
+	hashed := fakeHash("oldpass")
 	updated := false
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Username: "user1", Password: string(hashed)}, nil
+			return &domain.User{ID: "U1", Username: "user1", Password: hashed}, nil
 		},
 		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
 			updated = true
@@ -266,10 +241,10 @@ func TestAuthService_ResetPassword_SuperRole(t *testing.T) {
 }
 
 func TestAuthService_ResetPassword_NonSuperRequiresOldPassword(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 10)
+	hashed := fakeHash("oldpass")
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Password: string(hashed)}, nil
+			return &domain.User{ID: "U1", Password: hashed}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
@@ -279,10 +254,10 @@ func TestAuthService_ResetPassword_NonSuperRequiresOldPassword(t *testing.T) {
 }
 
 func TestAuthService_ResetPassword_WrongOldPassword(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 10)
+	hashed := fakeHash("oldpass")
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Password: string(hashed)}, nil
+			return &domain.User{ID: "U1", Password: hashed}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
@@ -301,27 +276,6 @@ func TestAuthService_ResetPassword_UserNotFound(t *testing.T) {
 
 	_, err := svc.ResetPassword(context.Background(), "nobody", "newpass", "", &domain.Actor{Role: "SUPER"})
 	assert.EqualError(t, err, "user not found")
-}
-
-// --- parseDuration ---
-
-func TestParseDuration(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"1h", "1h0m0s"},
-		{"30m", "30m0s"},
-		{"7d", "168h0m0s"},
-		{"", "1h0m0s"}, // default
-		{"invalid", "1h0m0s"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			d := parseDuration(tt.input, 1*3600*1e9) // 1h default as time.Duration
-			assert.Equal(t, tt.expected, d.String())
-		})
-	}
 }
 
 // --- Register error from FindByUsername ---
@@ -345,22 +299,13 @@ func TestAuthService_RefreshTokens_ReflectsCurrentRole(t *testing.T) {
 			return &domain.User{ID: id, Role: domain.RoleGuest, Status: true}, nil
 		},
 	}
-	svc, _, _ := newTestAuthService(userSvc)
+	svc, _, _, tokens, _ := newTestAuthServiceFull(userSvc)
+	tokens.refreshUserID = "U1"
 
-	old := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id": "U1", "role": "SUPER", "exp": float64(9999999999),
-	})
-	tokenStr, _ := old.SignedString([]byte("test-refresh-secret"))
-
-	result, err := svc.RefreshTokens(context.Background(), tokenStr)
+	_, err := svc.RefreshTokens(context.Background(), "refresh-token")
 	require.NoError(t, err)
-
-	parsed, err := jwt.Parse(result.Token, func(*jwt.Token) (any, error) {
-		return []byte("test-secret"), nil
-	})
-	require.NoError(t, err)
-	claims := parsed.Claims.(jwt.MapClaims)
-	assert.Equal(t, "GUEST", claims["role"])
+	require.Len(t, tokens.issued, 1)
+	assert.Equal(t, domain.RoleGuest, tokens.issued[0].Role)
 }
 
 func TestAuthService_RefreshTokens_InactiveUser(t *testing.T) {
@@ -369,22 +314,19 @@ func TestAuthService_RefreshTokens_InactiveUser(t *testing.T) {
 			return &domain.User{ID: id, Role: domain.RoleGuest, Status: false}, nil
 		},
 	}
-	svc, _, _ := newTestAuthService(userSvc)
+	svc, _, _, tokens, _ := newTestAuthServiceFull(userSvc)
+	tokens.refreshUserID = "U1"
 
-	old := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id": "U1", "role": "GUEST", "exp": float64(9999999999),
-	})
-	tokenStr, _ := old.SignedString([]byte("test-refresh-secret"))
-
-	_, err := svc.RefreshTokens(context.Background(), tokenStr)
+	_, err := svc.RefreshTokens(context.Background(), "refresh-token")
 	assert.EqualError(t, err, "user is no longer active")
+	assert.Empty(t, tokens.issued)
 }
 
 func TestAuthService_ResetPassword_RejectsOtherUsersAccount(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 10)
+	hashed := fakeHash("oldpass")
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "VICTIM", Password: string(hashed)}, nil
+			return &domain.User{ID: "VICTIM", Password: hashed}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
@@ -395,10 +337,10 @@ func TestAuthService_ResetPassword_RejectsOtherUsersAccount(t *testing.T) {
 }
 
 func TestAuthService_ResetPassword_OwnAccountAllowed(t *testing.T) {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 10)
+	hashed := fakeHash("oldpass")
 	userSvc := &mockUserService{
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "U1", Password: string(hashed)}, nil
+			return &domain.User{ID: "U1", Password: hashed}, nil
 		},
 		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
 			return &domain.User{ID: "U1"}, nil

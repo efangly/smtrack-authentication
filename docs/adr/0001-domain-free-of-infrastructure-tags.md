@@ -1,12 +1,12 @@
 ---
-status: accepted
+status: accepted — implementation pending (Phase 6, with the ward schema redesign)
 ---
 
 # Domain types carry no persistence or transport shape
 
-The domain structs in `internal/core/domain` used to carry `gorm:` and `json:` tags, so the
-Prisma-era database schema and the public JSON contract were both encoded in the core and
-changed whenever either one did. We decided the domain holds plain structs. Each adapter
+The domain structs in `internal/core/domain` carry `gorm:` and `json:` tags, so the
+Prisma-era database schema and the public JSON contract are both encoded in the core and
+change whenever either one does. We decided the domain holds plain structs. Each adapter
 owns its own shape and maps it at the boundary: persistence models with `gorm` tags live in
 `adapters/driven/database`, and response DTOs live in `adapters/driving/http/dto`.
 

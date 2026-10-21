@@ -10,9 +10,21 @@ jobs:
 
     runs-on: ubuntu-latest
     env:
-      IMAGE_NAME: siamatic/smtrack-auth-service:2.0.2ß
+      IMAGE_NAME: siamatic/smtrack-auth-service:2.1.0
     steps:
     - uses: actions/checkout@v4
+    # The image is only built and pushed (and k8s/deploy.yaml only rewritten)
+    # once these pass.
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Vet
+      run: go vet ./...
+    - name: Check formatting
+      run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+    - name: Test
+      run: go test ./...
     - name: Login to docker hub
       uses: docker/login-action@v3
       with:

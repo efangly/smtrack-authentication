@@ -20,6 +20,30 @@
 
 ---
 
+## สถานะ (อัปเดต 2026-10-21)
+
+| Phase | Branch | Commit | สถานะ |
+|---|---|---|---|
+| S1 ward guard (C1) | `fix/sec-c1-ward-guard` | `b8d249b` | ✅ push แล้ว |
+| S2 role ceiling (H1) | `fix/sec-h1-role-ceiling` | `d140a89` | ✅ push แล้ว |
+| S3 tenant scope (H2, M2) | `fix/sec-h2-tenant-scope` | `e1b01ab` | ✅ push แล้ว |
+| S4 disabled login (H3) | `fix/sec-h3-disabled-login` | `6c84016` | ✅ push แล้ว |
+| S5 trusted proxy (M1) | `fix/sec-m1-trusted-proxy` | `6dd002d` | ✅ push แล้ว (ops ต้องตั้ง `TRUSTED_PROXIES`) |
+| 0 safety net | `refactor/phase-0-safety-net` | `e638df9` | ✅ push แล้ว |
+| 1 Actor | `refactor/phase-1-actor` | `224d5b1` | ✅ push แล้ว |
+| 2 security ports | `refactor/phase-2-security-ports` | `7c54b78` | ✅ push แล้ว |
+| 3 domain.File (M4) | `refactor/phase-3-domain-file` | `3310d15` | ✅ push แล้ว |
+| 4 filter/patch (M3) | `refactor/phase-4-typed-filters-patches` | `595e2e0` | ✅ push แล้ว |
+| 5 cache codec | `refactor/phase-5-cache-codec` | `5458e88` | ✅ push แล้ว |
+| 6 persistence model | — | — | ⏸ เลื่อนไปทำพร้อมการปรับ DB ของ ward → `next-session-ward-db.md` |
+| 7 wrap-up (บางส่วน) | `refactor/phase-7-wrap-up` | — | ✅ ดูหัวข้อ Phase 7 |
+
+**PR แบบ stacked** (ยังไม่ได้เปิด): base ของแต่ละ PR คือ branch แถวก่อนหน้า ส่วน S1 ใช้ base เป็น `main`
+PR แรกจะรวม `e42e5a8` (e2e tests) ที่อยู่ใน `main` ของเครื่อง dev แต่ไม่เคย push เข้า `origin/main` ไปด้วย
+Phase S deploy ก่อนได้ (merge ถึง S5) เพราะไม่ขึ้นกับ phase อื่น
+
+---
+
 ## Phase S — Security hotfix (ทำก่อนทุกอย่าง, deploy ทันที)
 
 ### S1 — ward update/delete ไม่มีการตรวจสิทธิ์ (C1, Critical)
@@ -129,11 +153,11 @@
 
 ## Phase 7 — ปิดงาน
 
-- [ ] `importAllowlist` และ `tagAllowlist` ใน `internal/arch_test.go` ต้องว่าง
-- [ ] เพิ่ม `go test ./...` เข้า `.github/workflows/main.yaml` ก่อนขั้น build image (ปัจจุบัน CI ไม่รันเทสต์)
-- [ ] อัปเดต `CLAUDE.md` (Architecture, Conventions, Security invariants: role ceiling, tenant scope, ward guard, disabled-login), `README.md` (โครงสร้างโฟลเดอร์ + ตาราง role ของ ward/audit)
-- [ ] ทบทวน `GLOSSARY.md` และ ADR ว่ายังตรงกับโค้ด
-- [ ] L3 (ทางเลือก): ResetPassword ตอบ "user not found" เฉพาะ admin tier, คนอื่นได้ 403 ข้อความเดียวกัน
+- [ ] `importAllowlist` ว่างแล้วตั้งแต่ Phase 3 ✅ — **`tagAllowlist` ยังค้าง**, รอ Phase 6
+- [x] CI รัน `go vet` + `gofmt` + `go test ./...` ก่อน build image และแก้ `IMAGE_NAME` จาก `2.0.2ß` (พิมพ์ผิดบน `main` ตั้งแต่ `eb12a35` → build-push จะ fail) เป็น `2.1.0`
+- [x] อัปเดต `CLAUDE.md` (CI, กฎ import ที่ arch test บังคับ, หมายเหตุ Phase 6 ค้าง) และ `README.md` (แผนผังโครงสร้าง, คำสั่ง test, ลิงก์ glossary/ADR/plan)
+- [x] ทบทวน `GLOSSARY.md` (ยังตรง) และ ADR — ADR 0001 เปลี่ยน status เป็น "implementation pending (Phase 6)"
+- [x] L3 → ย้ายไป backlog ใน `next-session-ward-db.md`
 
 ---
 
@@ -155,9 +179,9 @@
 
 แต่ละ phase:
 ```bash
-go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./...
-go test ./test/e2e/...            # e2e + golden snapshots
-go test ./internal -run TestArch  # architecture rules (ตั้งแต่ Phase 0)
+go build ./... && go vet ./... && test -z "$(gofmt -l .)" && go test ./...   # รวม golden + arch test
+go vet -tags=e2e ./test/e2e/                                                 # e2e ต้อง compile ได้
+go test -tags=e2e ./test/e2e/... -v   # ต้องมี Postgres/Redis + E2E_ADMIN_USERNAME/PASSWORD (SUPER หรือ SERVICE)
 ```
 Phase S เพิ่มเติม — รันเครื่อง local (Postgres + Redis + `.env`) แล้วยิงด้วย curl:
 - register GUEST → login → `PUT /auth/ward/<id>` ต้องได้ 403

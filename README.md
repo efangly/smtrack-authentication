@@ -21,13 +21,14 @@ This service follows **Hexagonal Architecture** (Ports & Adapters):
 ```
 internal/
 ├── core/                      # Business logic (framework-independent)
-│   ├── domain/                # Domain models & enums
-│   ├── ports/                 # Interface definitions
-│   └── services/              # Use case implementations
+│   ├── domain/                # Entities, enums, Actor, File, *Patch types
+│   ├── ports/                 # Driving (services.go) and driven ports
+│   │                          #   (repositories, cache, upload, messaging, security)
+│   └── services/              # Use cases, tenant scope (scope.go), audit changes
 └── adapters/
     ├── driven/                # Outbound adapters (infra)
     │   ├── cache/             # Redis adapter
-    │   ├── database/          # PostgreSQL repositories
+    │   ├── database/          # PostgreSQL repositories, patch→column mapping
     │   ├── messaging/         # RabbitMQ adapter
     │   ├── security/          # JWT issuer + bcrypt password hasher
     │   └── upload/            # File upload adapter
@@ -163,8 +164,14 @@ go run main.go
 ### Run Tests
 
 ```bash
-go test ./...
+go test ./...                       # unit, golden-response and architecture tests (no services needed)
+go test ./internal/adapters/driving/http/handlers/ -run TestGolden -update   # after an intended response change
+go test -tags=e2e ./test/e2e/... -v # end-to-end against a real stack; see test/e2e/main_test.go
 ```
+
+The domain vocabulary is in [`GLOSSARY.md`](GLOSSARY.md), architectural decisions in
+[`docs/adr/`](docs/adr/), and the refactor plan in
+[`docs/refactor/hexagonal-plan.md`](docs/refactor/hexagonal-plan.md).
 
 ## Docker
 

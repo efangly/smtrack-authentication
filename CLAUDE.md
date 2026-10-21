@@ -27,16 +27,22 @@ Running the service locally needs PostgreSQL and Redis reachable, plus a `.env`
 (copy `.env.example`). RabbitMQ and the upload service are optional — the adapters
 degrade to no-ops with a warning when unconfigured.
 
-CI (`.github/workflows/main.yaml`) only builds and pushes the Docker image on `main`,
-then rewrites the image tag in `k8s/deploy.yaml`. **CI does not run the tests** — run
-them locally.
+CI (`.github/workflows/main.yaml`) runs only on pushes to `main`: `go vet`, a `gofmt`
+check and `go test ./...`, and only if those pass it builds and pushes the Docker image
+and rewrites the image tag in `k8s/deploy.yaml`. **Nothing runs on pull requests** — run
+the checks locally before opening one. Bump `IMAGE_NAME` in the workflow for a release.
 
 ## Architecture
 
 Hexagonal (ports & adapters). The layer map is in `README.md`; what matters when editing:
 
-- **`internal/core/`** must not import anything from `internal/adapters/` or from Fiber.
+- **`internal/core/`** must not import adapters, `config`, Fiber, GORM, JWT, bcrypt,
+  Redis, RabbitMQ, `mime/multipart` or `net/http` — `internal/arch_test.go` enforces it.
   Business rules live in `core/services/`, contracts in `core/ports/`.
+- **Domain structs still carry `gorm`/`json` tags.** Removing them (persistence models +
+  response DTOs, ADR 0001) is Phase 6 of `docs/refactor/hexagonal-plan.md`, deferred until
+  the ward schema redesign (`docs/refactor/next-session-ward-db.md`). Don't add tags to new
+  domain types; the arch test rejects any file not in its `tagAllowlist`.
 - **`core/ports/`** defines both driving ports (`services.go` — what the HTTP layer calls)
   and driven ports (`repositories.go`, `cache.go`, `upload.go`, `messaging.go`,
   `security.go` — what the services call). Adapters implement these; nothing else may be depended on directly.

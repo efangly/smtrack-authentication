@@ -24,7 +24,7 @@ func (s *auditService) Record(
 	entity domain.AuditEntity,
 	action domain.AuditAction,
 	entityID string,
-	caller *ports.JwtPayload,
+	caller *domain.Actor,
 	changes any,
 ) {
 	data, _ := json.Marshal(sanitizeAuditChanges(changes))

@@ -101,8 +101,8 @@ func goldenAuditLog() domain.AuditLog {
 }
 
 var (
-	goldenSuper = &ports.JwtPayload{ID: "UID-0", Name: "Root", Role: "SUPER", HosID: "HID-1", WardID: "WID-1"}
-	goldenGuest = &ports.JwtPayload{ID: "UID-9", Name: "Guest", Role: "GUEST", HosID: "HID-1", WardID: "WID-1"}
+	goldenSuper = &domain.Actor{ID: "UID-0", Name: "Root", Role: "SUPER", HosID: "HID-1", WardID: "WID-1"}
+	goldenGuest = &domain.Actor{ID: "UID-9", Name: "Guest", Role: "GUEST", HosID: "HID-1", WardID: "WID-1"}
 
 	errDomain   = errors.New("username already exists")
 	errInternal = fmt.Errorf("database error: %w", errors.New(`pq: relation "Users" does not exist`))
@@ -116,7 +116,7 @@ type goldenCase struct {
 	route  string // pattern registered on the app
 	target string // request path
 	body   string
-	caller *ports.JwtPayload // nil = no authenticated caller
+	caller *domain.Actor // nil = no authenticated caller
 	h      func() fiber.Handler
 }
 
@@ -143,7 +143,7 @@ func goldenCases() []goldenCase {
 		RefreshTokensFn: func(_ context.Context, _ string) (*ports.RefreshResult, error) {
 			return &ports.RefreshResult{Token: "access2.jwt", RefreshToken: "refresh2.jwt"}, nil
 		},
-		ResetPasswordFn: func(_ context.Context, _, _, _ string, _ *ports.JwtPayload) (string, error) {
+		ResetPasswordFn: func(_ context.Context, _, _, _ string, _ *domain.Actor) (string, error) {
 			return "Password reset successfully", nil
 		},
 	}
@@ -163,45 +163,45 @@ func goldenCases() []goldenCase {
 	}
 
 	okUsers := &mockUserService{
-		CreateFn:  func(_ context.Context, _ *domain.User, _ *ports.JwtPayload) (*domain.User, error) { return user, nil },
-		FindAllFn: func(_ context.Context, _ *ports.JwtPayload) ([]domain.User, error) { return userList, nil },
-		FindOneFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.User, error) { return user, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
+		CreateFn:  func(_ context.Context, _ *domain.User, _ *domain.Actor) (*domain.User, error) { return user, nil },
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.User, error) { return userList, nil },
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
 			return user, nil
 		},
-		RemoveFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.User, error) { return user, nil },
+		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
 	}
 	emptyUsers := &mockUserService{
-		FindAllFn: func(_ context.Context, _ *ports.JwtPayload) ([]domain.User, error) { return []domain.User{}, nil },
-		FindOneFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.User, error) {
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.User, error) { return []domain.User{}, nil },
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) {
 			return nil, errors.New("user not found")
 		},
 	}
 
 	okHospitals := &mockHospitalService{
-		CreateFn: func(_ context.Context, _ *domain.Hospital, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.Hospital, error) {
+		CreateFn: func(_ context.Context, _ *domain.Hospital, _ *multipart.FileHeader, _ *domain.Actor) (*domain.Hospital, error) {
 			return hospital, nil
 		},
-		FindAllFn: func(_ context.Context, _ *ports.JwtPayload) ([]domain.Hospital, error) {
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Hospital, error) {
 			return []domain.Hospital{*goldenHospital()}, nil
 		},
-		FindOneFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.Hospital, error) { return hospital, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.Hospital, error) {
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.Hospital, error) {
 			return hospital, nil
 		},
-		RemoveFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.Hospital, error) { return hospital, nil },
+		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },
 	}
 
 	okWards := &mockWardService{
-		CreateFn: func(_ context.Context, _ *domain.Ward, _ *ports.JwtPayload) (*domain.Ward, error) { return ward, nil },
-		FindAllFn: func(_ context.Context, _ *ports.JwtPayload) ([]domain.Ward, error) {
+		CreateFn: func(_ context.Context, _ *domain.Ward, _ *domain.Actor) (*domain.Ward, error) { return ward, nil },
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Ward, error) {
 			return []domain.Ward{*goldenWard()}, nil
 		},
-		FindOneFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (*domain.Ward, error) { return ward, nil },
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *ports.JwtPayload) (*domain.Ward, error) {
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Ward, error) { return ward, nil },
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *domain.Actor) (*domain.Ward, error) {
 			return ward, nil
 		},
-		RemoveFn: func(_ context.Context, _ string, _ *ports.JwtPayload) (string, error) {
+		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (string, error) {
 			return "Ward deleted successfully", nil
 		},
 	}

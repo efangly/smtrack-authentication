@@ -36,7 +36,7 @@ func TestAuthService_Register_Success(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return nil, nil // no existing user
 		},
-		CreateFn: func(_ context.Context, user *domain.User, _ *ports.JwtPayload) (*domain.User, error) {
+		CreateFn: func(_ context.Context, user *domain.User, _ *domain.Actor) (*domain.User, error) {
 			passwordSeenByCreate = user.Password
 			return user, nil
 		},
@@ -77,7 +77,7 @@ func TestAuthService_Register_WithFile(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return nil, nil
 		},
-		CreateFn: func(_ context.Context, user *domain.User, _ *ports.JwtPayload) (*domain.User, error) {
+		CreateFn: func(_ context.Context, user *domain.User, _ *domain.Actor) (*domain.User, error) {
 			return user, nil
 		},
 	}
@@ -252,14 +252,14 @@ func TestAuthService_ResetPassword_SuperRole(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return &domain.User{ID: "U1", Username: "user1", Password: string(hashed)}, nil
 		},
-		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, _ map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
 			updated = true
 			return &domain.User{ID: "U1"}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
 
-	msg, err := svc.ResetPassword(context.Background(), "user1", "newpass", "", &ports.JwtPayload{Role: "SUPER"})
+	msg, err := svc.ResetPassword(context.Background(), "user1", "newpass", "", &domain.Actor{Role: "SUPER"})
 	require.NoError(t, err)
 	assert.Equal(t, "Password reset successfully", msg)
 	assert.True(t, updated)
@@ -274,7 +274,7 @@ func TestAuthService_ResetPassword_NonSuperRequiresOldPassword(t *testing.T) {
 	}
 	svc, _, _ := newTestAuthService(userSvc)
 
-	_, err := svc.ResetPassword(context.Background(), "user1", "newpass", "", &ports.JwtPayload{Role: "ADMIN"})
+	_, err := svc.ResetPassword(context.Background(), "user1", "newpass", "", &domain.Actor{Role: "ADMIN"})
 	assert.EqualError(t, err, "old password is required")
 }
 
@@ -287,7 +287,7 @@ func TestAuthService_ResetPassword_WrongOldPassword(t *testing.T) {
 	}
 	svc, _, _ := newTestAuthService(userSvc)
 
-	_, err := svc.ResetPassword(context.Background(), "user1", "newpass", "wrongold", &ports.JwtPayload{Role: "ADMIN"})
+	_, err := svc.ResetPassword(context.Background(), "user1", "newpass", "wrongold", &domain.Actor{Role: "ADMIN"})
 	assert.EqualError(t, err, "old password is incorrect")
 }
 
@@ -299,7 +299,7 @@ func TestAuthService_ResetPassword_UserNotFound(t *testing.T) {
 	}
 	svc, _, _ := newTestAuthService(userSvc)
 
-	_, err := svc.ResetPassword(context.Background(), "nobody", "newpass", "", &ports.JwtPayload{Role: "SUPER"})
+	_, err := svc.ResetPassword(context.Background(), "nobody", "newpass", "", &domain.Actor{Role: "SUPER"})
 	assert.EqualError(t, err, "user not found")
 }
 
@@ -390,7 +390,7 @@ func TestAuthService_ResetPassword_RejectsOtherUsersAccount(t *testing.T) {
 	svc, _, _ := newTestAuthService(userSvc)
 
 	_, err := svc.ResetPassword(context.Background(), "victim", "newpass", "oldpass",
-		&ports.JwtPayload{ID: "ATTACKER", Role: "GUEST"})
+		&domain.Actor{ID: "ATTACKER", Role: "GUEST"})
 	assert.EqualError(t, err, "you can only reset your own password")
 }
 
@@ -400,14 +400,14 @@ func TestAuthService_ResetPassword_OwnAccountAllowed(t *testing.T) {
 		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
 			return &domain.User{ID: "U1", Password: string(hashed)}, nil
 		},
-		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *ports.JwtPayload) (*domain.User, error) {
+		UpdateFn: func(_ context.Context, _ string, data map[string]any, _ *multipart.FileHeader, _ *domain.Actor) (*domain.User, error) {
 			return &domain.User{ID: "U1"}, nil
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
 
 	msg, err := svc.ResetPassword(context.Background(), "user1", "newpass", "oldpass",
-		&ports.JwtPayload{ID: "U1", Role: "GUEST"})
+		&domain.Actor{ID: "U1", Role: "GUEST"})
 	require.NoError(t, err)
 	assert.Equal(t, "Password reset successfully", msg)
 }

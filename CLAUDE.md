@@ -83,7 +83,7 @@ These were bugs once. Do not regress them.
   deliberately has no password field — password changes go through `PATCH /auth/reset/:username`.
 - **`/auth/user/:id` routes are ownership-checked in the handler**, not just by role:
   a non-admin-tier caller may only touch its own record, and `role`/`status`/`wardId` are
-  stripped from its update. Use `ports.JwtPayload.IsAdminTier()` for that test —
+  stripped from its update. Use `domain.Actor.IsAdminTier()` for that test —
   admin tier is SUPER, SERVICE, ADMIN, LEGACY_ADMIN.
 - **Tenant scope is enforced in the services.** ADMIN/LEGACY_ADMIN may only read, change
   or place users in their own hospital (`canManageUsersIn` in `core/services/scope.go`);
@@ -93,6 +93,7 @@ These were bugs once. Do not regress them.
   `FindByUsername` exist only for the auth flows. `/auth/audit` is SUPER/SERVICE only
   because logs are not tenant-scoped.
 - **Role ceiling is enforced in `userService`, not the handler.** `domain.Role.CanAssign`
+  (via `domain.Actor.CanAssign`)
   decides which roles a caller may assign *and* which existing users it may update or
   delete: SUPER → any; SERVICE → any but SUPER; ADMIN/LEGACY_ADMIN → USER, LEGACY_USER,
   GUEST. Nobody may change their own role. A nil caller may only create a GUEST (public
@@ -124,7 +125,7 @@ Tests are table-driven-ish, `testify` (`assert`/`require`), and fully mocked:
   repository and driven port. Set only the `…Fn` fields a test needs.
 - `internal/adapters/driving/http/handlers/handlers_test.go` — mocks the *services* and
   drives real Fiber apps via `app.Test(httptest.NewRequest(...))`. Use the `injectCaller`
-  helper to put a `*ports.JwtPayload` in `c.Locals("user")`; handlers that read the caller
+  helper to put a `*domain.Actor` in `c.Locals("user")`; handlers that read the caller
   return 401 without it.
 
 When changing a port signature, update the corresponding mock in both files.

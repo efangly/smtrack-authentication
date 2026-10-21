@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
-	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
 	"github.com/efangly/smtrack-authentication/pkg/validator"
 	"github.com/gofiber/fiber/v3"
@@ -46,12 +46,12 @@ func isInternal(err error) bool {
 }
 
 // getCaller extracts the authenticated user's JWT payload from the Fiber context.
-func getCaller(c fiber.Ctx) *ports.JwtPayload {
+func getCaller(c fiber.Ctx) *domain.Actor {
 	user := c.Locals("user")
 	if user == nil {
 		return nil
 	}
-	payload, ok := user.(*ports.JwtPayload)
+	payload, ok := user.(*domain.Actor)
 	if !ok {
 		return nil
 	}

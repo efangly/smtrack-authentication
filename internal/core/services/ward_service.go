@@ -35,7 +35,7 @@ func NewWardService(
 	}
 }
 
-func (s *wardService) Create(ctx context.Context, ward *domain.Ward, caller *ports.JwtPayload) (*domain.Ward, error) {
+func (s *wardService) Create(ctx context.Context, ward *domain.Ward, caller *domain.Actor) (*domain.Ward, error) {
 	if ward.ID == "" {
 		ward.ID = uuid.New().String()
 	}
@@ -59,7 +59,7 @@ func (s *wardService) Create(ctx context.Context, ward *domain.Ward, caller *por
 	return result, nil
 }
 
-func (s *wardService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Ward, error) {
+func (s *wardService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error) {
 	conditions, notConditions, key := buildWardConditions(caller)
 
 	// Check cache
@@ -84,7 +84,7 @@ func (s *wardService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]
 	return wards, nil
 }
 
-func (s *wardService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Ward, error) {
+func (s *wardService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error) {
 	if caller == nil {
 		return nil, errors.New("unauthorized")
 	}
@@ -99,7 +99,7 @@ func (s *wardService) FindOne(ctx context.Context, id string, caller *ports.JwtP
 	return ward, nil
 }
 
-func (s *wardService) Update(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error) {
+func (s *wardService) Update(ctx context.Context, id string, data map[string]any, caller *domain.Actor) (*domain.Ward, error) {
 	data["updateAt"] = time.Now()
 
 	ward, err := s.repo.Update(ctx, id, data)
@@ -134,7 +134,7 @@ func (s *wardService) Update(ctx context.Context, id string, data map[string]any
 	return ward, nil
 }
 
-func (s *wardService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (string, error) {
+func (s *wardService) Remove(ctx context.Context, id string, caller *domain.Actor) (string, error) {
 	existing, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return "", err
@@ -157,24 +157,24 @@ func (s *wardService) Remove(ctx context.Context, id string, caller *ports.JwtPa
 	return "Ward deleted successfully", nil
 }
 
-func buildWardConditions(caller *ports.JwtPayload) (map[string]any, []map[string]any, string) {
+func buildWardConditions(caller *domain.Actor) (map[string]any, []map[string]any, string) {
 	var conditions map[string]any
 	var notConditions []map[string]any
 	var key string
 
 	switch caller.Role {
-	case "ADMIN", "LEGACY_ADMIN":
+	case domain.RoleAdmin, domain.RoleLegacyAdmin:
 		conditions = map[string]any{"hosId": caller.HosID}
 		notConditions = []map[string]any{
 			{"hosId": "HID-DEVELOPMENT"},
 		}
 		key = fmt.Sprintf("ward:%s", caller.HosID)
-	case "SERVICE":
+	case domain.RoleService:
 		notConditions = []map[string]any{
 			{"hosId": "HID-DEVELOPMENT"},
 		}
 		key = "ward:HID-DEVELOPMENT"
-	case "SUPER":
+	case domain.RoleSuper:
 		key = "ward"
 	default:
 		key = "ward"

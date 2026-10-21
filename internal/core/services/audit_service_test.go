@@ -21,7 +21,7 @@ func TestAuditService_Record_WritesLog(t *testing.T) {
 		},
 	}
 	svc := NewAuditService(repo)
-	caller := &ports.JwtPayload{ID: "U1", Name: "Alice"}
+	caller := &domain.Actor{ID: "U1", Name: "Alice"}
 
 	svc.Record(context.Background(), domain.AuditEntityUser, domain.AuditActionUpdate, "U1", caller,
 		map[string]any{"username": "new-name"})

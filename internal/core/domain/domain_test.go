@@ -111,3 +111,23 @@ func TestWard_TableName(t *testing.T) {
 func TestHospital_TableName(t *testing.T) {
 	assert.Equal(t, "Hospitals", Hospital{}.TableName())
 }
+
+func TestActor_IsAdminTier(t *testing.T) {
+	admin := map[Role]bool{RoleSuper: true, RoleService: true, RoleAdmin: true, RoleLegacyAdmin: true}
+	for _, role := range []Role{RoleSuper, RoleService, RoleAdmin, RoleLegacyAdmin, RoleUser, RoleLegacyUser, RoleGuest} {
+		t.Run(string(role), func(t *testing.T) {
+			assert.Equal(t, admin[role], (&Actor{Role: role}).IsAdminTier())
+		})
+	}
+}
+
+func TestActor_NilIsUnprivileged(t *testing.T) {
+	var a *Actor
+	assert.False(t, a.IsAdminTier())
+	assert.False(t, a.CanAssign(RoleGuest))
+}
+
+func TestActor_CanAssign_DelegatesToRole(t *testing.T) {
+	assert.True(t, (&Actor{Role: RoleService}).CanAssign(RoleAdmin))
+	assert.False(t, (&Actor{Role: RoleAdmin}).CanAssign(RoleAdmin))
+}

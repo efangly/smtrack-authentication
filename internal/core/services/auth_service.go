@@ -228,7 +228,7 @@ func (s *authService) RefreshTokens(ctx context.Context, tokenStr string) (*port
 	}, nil
 }
 
-func (s *authService) ResetPassword(ctx context.Context, username string, password string, oldPassword string, caller *ports.JwtPayload) (string, error) {
+func (s *authService) ResetPassword(ctx context.Context, username string, password string, oldPassword string, caller *domain.Actor) (string, error) {
 	user, err := s.userService.FindByUsername(ctx, username)
 	if err != nil {
 		return "", err
@@ -243,7 +243,7 @@ func (s *authService) ResetPassword(ctx context.Context, username string, passwo
 	}
 
 	// Everyone but SUPER must prove the current password.
-	if caller.Role != string(domain.RoleSuper) {
+	if caller.Role != domain.RoleSuper {
 		if oldPassword == "" {
 			return "", errors.New("old password is required")
 		}

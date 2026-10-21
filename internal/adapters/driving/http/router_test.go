@@ -28,20 +28,20 @@ type stubWardService struct {
 	removed bool
 }
 
-func (s *stubWardService) Create(ctx context.Context, ward *domain.Ward, caller *ports.JwtPayload) (*domain.Ward, error) {
+func (s *stubWardService) Create(ctx context.Context, ward *domain.Ward, caller *domain.Actor) (*domain.Ward, error) {
 	return ward, nil
 }
-func (s *stubWardService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Ward, error) {
+func (s *stubWardService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error) {
 	return nil, nil
 }
-func (s *stubWardService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Ward, error) {
+func (s *stubWardService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error) {
 	return &domain.Ward{ID: id}, nil
 }
-func (s *stubWardService) Update(ctx context.Context, id string, data map[string]any, caller *ports.JwtPayload) (*domain.Ward, error) {
+func (s *stubWardService) Update(ctx context.Context, id string, data map[string]any, caller *domain.Actor) (*domain.Ward, error) {
 	s.updated = true
 	return &domain.Ward{ID: id}, nil
 }
-func (s *stubWardService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (string, error) {
+func (s *stubWardService) Remove(ctx context.Context, id string, caller *domain.Actor) (string, error) {
 	s.removed = true
 	return "Ward deleted successfully", nil
 }
@@ -49,7 +49,7 @@ func (s *stubWardService) Remove(ctx context.Context, id string, caller *ports.J
 // stubAuditService records whether a listing got past the router.
 type stubAuditService struct{ listed bool }
 
-func (s *stubAuditService) Record(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *ports.JwtPayload, changes any) {
+func (s *stubAuditService) Record(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *domain.Actor, changes any) {
 }
 func (s *stubAuditService) FindAll(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
 	s.listed = true

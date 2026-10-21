@@ -70,7 +70,7 @@ func TestWardService_FindAll_Success(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	wards, err := svc.FindAll(context.Background(), &ports.JwtPayload{Role: "SUPER"})
+	wards, err := svc.FindAll(context.Background(), &domain.Actor{Role: "SUPER"})
 	require.NoError(t, err)
 	assert.Len(t, wards, 2)
 }
@@ -83,7 +83,7 @@ func TestWardService_FindAll_RepoError(t *testing.T) {
 	}
 	svc, _, _ := newTestWardService(repo)
 
-	_, err := svc.FindAll(context.Background(), &ports.JwtPayload{Role: "SUPER"})
+	_, err := svc.FindAll(context.Background(), &domain.Actor{Role: "SUPER"})
 	assert.EqualError(t, err, "db error")
 }
 
@@ -211,7 +211,7 @@ func TestWardService_Remove_DeleteError(t *testing.T) {
 func TestBuildWardConditions(t *testing.T) {
 	tests := []struct {
 		name           string
-		role           string
+		role           domain.Role
 		hosID          string
 		expectConds    bool
 		expectNotConds int
@@ -225,7 +225,7 @@ func TestBuildWardConditions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			caller := &ports.JwtPayload{Role: tt.role, HosID: tt.hosID}
+			caller := &domain.Actor{Role: tt.role, HosID: tt.hosID}
 			conds, notConds, key := buildWardConditions(caller)
 			if tt.expectConds {
 				assert.NotNil(t, conds)

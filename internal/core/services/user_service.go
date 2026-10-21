@@ -29,7 +29,7 @@ func NewUserService(repo ports.UserRepository, wardRepo ports.WardRepository, ca
 	return &userService{repo: repo, wardRepo: wardRepo, cache: cache, upload: upload, audit: audit}
 }
 
-func (s *userService) Create(ctx context.Context, user *domain.User, caller *ports.JwtPayload) (*domain.User, error) {
+func (s *userService) Create(ctx context.Context, user *domain.User, caller *domain.Actor) (*domain.User, error) {
 	// An unset role falls back to the least-privileged one; a set role must be
 	// one we actually know about.
 	if user.Role == "" {
@@ -81,7 +81,7 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *por
 	return result, nil
 }
 
-func (s *userService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.User, error) {
+func (s *userService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.User, error) {
 	conditions, notConditions, key := buildUserConditions(caller)
 
 	// Check cache
@@ -106,7 +106,7 @@ func (s *userService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]
 	return users, nil
 }
 
-func (s *userService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+func (s *userService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
 	if caller == nil {
 		return nil, errors.New("unauthorized")
 	}
@@ -164,7 +164,7 @@ func (s *userService) FindByUsername(ctx context.Context, username string) (*dom
 	return user, nil
 }
 
-func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.User, error) {
+func (s *userService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.User, error) {
 	target, err := s.authorizeChange(ctx, id, caller)
 	if err != nil {
 		return nil, err
@@ -239,7 +239,7 @@ func (s *userService) Update(ctx context.Context, id string, data map[string]any
 	return updatedUser, nil
 }
 
-func (s *userService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+func (s *userService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
 	if _, err := s.authorizeChange(ctx, id, caller); err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (s *userService) Remove(ctx context.Context, id string, caller *ports.JwtPa
 // its existence is not revealed.
 // It reads the repository directly so the decision is never made on a stale
 // cached role.
-func (s *userService) authorizeChange(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.User, error) {
+func (s *userService) authorizeChange(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
 	if caller == nil {
 		return nil, errors.New("unauthorized")
 	}
@@ -301,8 +301,8 @@ func (s *userService) authorizeChange(ctx context.Context, id string, caller *po
 // checkWardInScope rejects placing a user into a ward outside the caller's
 // tenant scope. SUPER and SERVICE may use any ward; the database still rejects
 // one that does not exist.
-func (s *userService) checkWardInScope(ctx context.Context, caller *ports.JwtPayload, wardID string) error {
-	switch domain.Role(caller.Role) {
+func (s *userService) checkWardInScope(ctx context.Context, caller *domain.Actor, wardID string) error {
+	switch caller.Role {
 	case domain.RoleSuper, domain.RoleService:
 		return nil
 	}
@@ -328,31 +328,31 @@ func toRole(v any) domain.Role {
 	return ""
 }
 
-func buildUserConditions(caller *ports.JwtPayload) (map[string]any, []map[string]any, string) {
+func buildUserConditions(caller *domain.Actor) (map[string]any, []map[string]any, string) {
 	var conditions map[string]any
 	var notConditions []map[string]any
 	var key string
 
 	switch caller.Role {
-	case "ADMIN":
+	case domain.RoleAdmin:
 		conditions = map[string]any{"hosId": caller.HosID}
 		notConditions = []map[string]any{
 			{"hosId": "HID-DEVELOPMENT"},
 			{"role": "SERVICE"},
 		}
 		key = fmt.Sprintf("user:%s", caller.HosID)
-	case "LEGACY_ADMIN":
+	case domain.RoleLegacyAdmin:
 		conditions = map[string]any{"hosId": caller.HosID}
 		notConditions = []map[string]any{
 			{"hosId": "HID-DEVELOPMENT"},
 		}
 		key = fmt.Sprintf("user:%s", caller.HosID)
-	case "SERVICE":
+	case domain.RoleService:
 		notConditions = []map[string]any{
 			{"hosId": "HID-DEVELOPMENT"},
 		}
 		key = "user:HID-DEVELOPMENT"
-	case "SUPER":
+	case domain.RoleSuper:
 		key = "user"
 	default:
 		key = "user"

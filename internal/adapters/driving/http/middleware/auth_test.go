@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +45,7 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 	app := fiber.New()
 	app.Use(JWTAuth(testJWTSecret))
 	app.Get("/test", func(c fiber.Ctx) error {
-		payload := c.Locals("user").(*ports.JwtPayload)
+		payload := c.Locals("user").(*domain.Actor)
 		return c.JSON(fiber.Map{
 			"id":   payload.ID,
 			"role": payload.Role,
@@ -136,7 +136,7 @@ func TestRefreshJWTAuth_ValidToken(t *testing.T) {
 	app := fiber.New()
 	app.Use(RefreshJWTAuth(testRefreshSecret))
 	app.Post("/refresh", func(c fiber.Ctx) error {
-		payload := c.Locals("user").(*ports.JwtPayload)
+		payload := c.Locals("user").(*domain.Actor)
 		return c.JSON(fiber.Map{"id": payload.ID})
 	})
 

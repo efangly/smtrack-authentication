@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
-	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -25,9 +24,9 @@ func setupRolesApp(allowedRoles ...domain.Role) *fiber.App {
 			})
 			if token != nil && token.Valid {
 				claims := token.Claims.(jwt.MapClaims)
-				c.Locals("user", &ports.JwtPayload{
+				c.Locals("user", &domain.Actor{
 					ID:   getString(claims, "id"),
-					Role: getString(claims, "role"),
+					Role: domain.Role(getString(claims, "role")),
 				})
 			}
 		}

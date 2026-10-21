@@ -3,7 +3,6 @@ package middleware
 import (
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
-	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -15,7 +14,7 @@ func RolesGuard(allowedRoles ...domain.Role) fiber.Handler {
 			return c.Status(fiber.StatusUnauthorized).JSON(dto.FailResponse("Unauthorized"))
 		}
 
-		payload, ok := user.(*ports.JwtPayload)
+		payload, ok := user.(*domain.Actor)
 		if !ok {
 			return c.Status(fiber.StatusUnauthorized).JSON(dto.FailResponse("Invalid user context"))
 		}
@@ -26,7 +25,7 @@ func RolesGuard(allowedRoles ...domain.Role) fiber.Handler {
 		}
 
 		for _, role := range allowedRoles {
-			if string(role) == payload.Role {
+			if role == payload.Role {
 				return c.Next()
 			}
 		}

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -50,10 +50,10 @@ func JWTAuth(jwtSecret string) fiber.Handler {
 			})
 		}
 
-		payload := &ports.JwtPayload{
+		payload := &domain.Actor{
 			ID:     getString(claims, "id"),
 			Name:   getString(claims, "name"),
-			Role:   getString(claims, "role"),
+			Role:   domain.Role(getString(claims, "role")),
 			HosID:  getString(claims, "hosId"),
 			WardID: getString(claims, "wardId"),
 		}
@@ -98,10 +98,10 @@ func RefreshJWTAuth(jwtRefreshSecret string) fiber.Handler {
 			})
 		}
 
-		payload := &ports.JwtPayload{
+		payload := &domain.Actor{
 			ID:     getString(claims, "id"),
 			Name:   getString(claims, "name"),
-			Role:   getString(claims, "role"),
+			Role:   domain.Role(getString(claims, "role")),
 			HosID:  getString(claims, "hosId"),
 			WardID: getString(claims, "wardId"),
 		}

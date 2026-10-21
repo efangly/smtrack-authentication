@@ -28,7 +28,7 @@ _Avoid_: Account (for the record), member, login
 
 **Actor**:
 The user performing the current request, as identified by their access token.
-_Avoid_: Caller, principal, JWT payload, current user
+_Avoid_: Principal, JWT payload, current user
 
 **Role**:
 The single permission level a user holds: SUPER, SERVICE, ADMIN, LEGACY_ADMIN, USER,

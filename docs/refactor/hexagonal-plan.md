@@ -66,10 +66,10 @@
 
 ## Phase 1 — `JwtPayload` → `domain.Actor` (L6)
 
-- [ ] สร้าง `internal/core/domain/actor.go`: `type Actor struct{ ID, Name string; Role Role; HosID, WardID string }` + `IsAdminTier()`, `CanAssign(Role)` (ย้ายจาก S2)
-- [ ] ลบ `ports.JwtPayload`; แทนที่ทุก `caller *ports.JwtPayload` ด้วย `*domain.Actor` ใน `ports/services.go`, services, handlers (`getCaller`), middleware (`auth.go`, `roles.go`), mocks, `injectCaller`
-- [ ] switch แบบ string literal ใน `build*Conditions` (`case "ADMIN"`) → ใช้ค่าคงที่ `domain.Role…`
-- [ ] อัปเดต CLAUDE.md ส่วนที่อ้าง `ports.JwtPayload.IsAdminTier()`
+- [x] สร้าง `internal/core/domain/actor.go`: `type Actor struct{ ID, Name string; Role Role; HosID, WardID string }` + `IsAdminTier()`, `CanAssign(Role)` (ย้ายจาก S2)
+- [x] ลบ `ports.JwtPayload`; แทนที่ทุก `caller *ports.JwtPayload` ด้วย `*domain.Actor` ใน `ports/services.go`, services, handlers (`getCaller`), middleware (`auth.go`, `roles.go`), mocks, `injectCaller`
+- [x] switch แบบ string literal ใน `build*Conditions` (`case "ADMIN"`) → ใช้ค่าคงที่ `domain.Role…`
+- [x] อัปเดต CLAUDE.md ส่วนที่อ้าง `ports.JwtPayload.IsAdminTier()`
 
 ## Phase 2 — Security ports: token + password hasher (L2, L3, L2-sec, L4-sec)
 

@@ -40,7 +40,7 @@ func NewHospitalService(
 	}
 }
 
-func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error) {
+func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error) {
 	if hospital.ID == "" {
 		hospital.ID = uuid.New().String()
 	}
@@ -67,7 +67,7 @@ func (s *hospitalService) Create(ctx context.Context, hospital *domain.Hospital,
 	return result, nil
 }
 
-func (s *hospitalService) FindAll(ctx context.Context, caller *ports.JwtPayload) ([]domain.Hospital, error) {
+func (s *hospitalService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error) {
 	conditions, notConditions, key := buildHospitalConditions(caller)
 
 	// Check cache
@@ -92,7 +92,7 @@ func (s *hospitalService) FindAll(ctx context.Context, caller *ports.JwtPayload)
 	return hospitals, nil
 }
 
-func (s *hospitalService) FindOne(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error) {
+func (s *hospitalService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
 	if caller == nil {
 		return nil, errors.New("unauthorized")
 	}
@@ -108,7 +108,7 @@ func (s *hospitalService) FindOne(ctx context.Context, id string, caller *ports.
 	return hospital, nil
 }
 
-func (s *hospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *ports.JwtPayload) (*domain.Hospital, error) {
+func (s *hospitalService) Update(ctx context.Context, id string, data map[string]any, file *multipart.FileHeader, caller *domain.Actor) (*domain.Hospital, error) {
 	if file != nil {
 		picURL, err := s.upload.Upload(file, "hospital")
 		if err != nil {
@@ -156,7 +156,7 @@ func (s *hospitalService) Update(ctx context.Context, id string, data map[string
 	return hospital, nil
 }
 
-func (s *hospitalService) Remove(ctx context.Context, id string, caller *ports.JwtPayload) (*domain.Hospital, error) {
+func (s *hospitalService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
 	existing, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -187,26 +187,26 @@ func (s *hospitalService) Remove(ctx context.Context, id string, caller *ports.J
 	return hospital, nil
 }
 
-func buildHospitalConditions(caller *ports.JwtPayload) (map[string]any, []map[string]any, string) {
+func buildHospitalConditions(caller *domain.Actor) (map[string]any, []map[string]any, string) {
 	var conditions map[string]any
 	var notConditions []map[string]any
 	var key string
 
 	switch caller.Role {
-	case "ADMIN", "LEGACY_ADMIN":
+	case domain.RoleAdmin, domain.RoleLegacyAdmin:
 		conditions = map[string]any{"id": caller.HosID}
 		notConditions = []map[string]any{
 			{"id": "HID-DEVELOPMENT"},
 		}
 		key = fmt.Sprintf("hospital:%s", caller.HosID)
-	case "SERVICE":
+	case domain.RoleService:
 		notConditions = []map[string]any{
 			{"id": "HID-DEVELOPMENT"},
 		}
 		key = "hospital:HID-DEVELOPMENT"
-	case "SUPER":
+	case domain.RoleSuper:
 		key = "hospital"
-	case "USER", "LEGACY_USER", "GUEST":
+	case domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest:
 		// An empty wardId would filter on "" and, worse, make every ward-less
 		// caller share the cache key "hospital:".
 		if caller.WardID == "" {

@@ -5,13 +5,12 @@ import (
 	"testing"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
-	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func actor(role domain.Role, hosID, wardID string) *ports.JwtPayload {
-	return &ports.JwtPayload{ID: "C1", Role: string(role), HosID: hosID, WardID: wardID}
+func actor(role domain.Role, hosID, wardID string) *domain.Actor {
+	return &domain.Actor{ID: "C1", Role: role, HosID: hosID, WardID: wardID}
 }
 
 // --- users ---
@@ -19,7 +18,7 @@ func actor(role domain.Role, hosID, wardID string) *ports.JwtPayload {
 func TestUserService_FindOne_TenantScope(t *testing.T) {
 	tests := []struct {
 		name    string
-		caller  *ports.JwtPayload
+		caller  *domain.Actor
 		id      string
 		userHos string
 		wantErr string
@@ -57,7 +56,7 @@ func TestUserService_FindOne_RequiresCaller(t *testing.T) {
 func TestUserService_UpdateAndRemove_TenantScope(t *testing.T) {
 	tests := []struct {
 		name    string
-		caller  *ports.JwtPayload
+		caller  *domain.Actor
 		userHos string
 		wantErr string
 	}{
@@ -111,7 +110,7 @@ func wardsIn(_ context.Context, id string) (*domain.Ward, error) {
 func TestUserService_Create_WardMustBeInTenant(t *testing.T) {
 	tests := []struct {
 		name    string
-		caller  *ports.JwtPayload
+		caller  *domain.Actor
 		wardID  string
 		wantErr string
 	}{
@@ -168,7 +167,7 @@ func TestUserService_Update_WardMoveMustStayInTenant(t *testing.T) {
 func TestHospitalService_FindOne_Scope(t *testing.T) {
 	tests := []struct {
 		name   string
-		caller *ports.JwtPayload
+		caller *domain.Actor
 		hosID  string
 		want   bool
 	}{
@@ -216,7 +215,7 @@ func TestHospitalService_FindOne_RequiresCaller(t *testing.T) {
 func TestWardService_FindOne_Scope(t *testing.T) {
 	tests := []struct {
 		name   string
-		caller *ports.JwtPayload
+		caller *domain.Actor
 		hosID  string
 		want   bool
 	}{

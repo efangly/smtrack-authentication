@@ -1,0 +1,105 @@
+# Tenant/department version (ADR 0003), deployed beside the old one (ADR 0004): own
+# Deployment, Service, database, Redis keyspace and JWT secrets. The old
+# k8s/deploy.yaml is untouched and stays in service until cutover is proven.
+# Secrets come from authentication-v2-secrets (see secrets.example.yaml), not ConfigMaps.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentication-v2
+  namespace: smtrack
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: authentication-v2
+  template:
+    metadata:
+      labels:
+        app: authentication-v2
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: authentication
+        image: siamatic/smtrack-auth-service:3.0.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /auth/health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 5
+        livenessProbe:
+          httpGet:
+            path: /auth/health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 5
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 500m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+        env:
+        - name: PORT
+          value: "8080"
+        - name: EXPIRE_TIME
+          value: "15m"
+        - name: REFRESH_EXPIRE_TIME
+          value: "7d"
+        - name: BCRYPT_COST
+          value: "12"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef: {name: authentication-v2-secrets, key: DATABASE_URL}
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef: {name: authentication-v2-secrets, key: JWT_SECRET}
+        - name: JWT_REFRESH_SECRET
+          valueFrom:
+            secretKeyRef: {name: authentication-v2-secrets, key: JWT_REFRESH_SECRET}
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: authentication-v2-secrets, key: REDIS_PASSWORD}
+        - name: UPLOAD_PATH
+          valueFrom:
+            configMapKeyRef: {name: authentication-config, key: UPLOAD_PATH}
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef: {name: redis-config, key: REDIS_HOST}
+        # Leave unset while testing: the RabbitMQ adapter then does nothing, so the new
+        # version cannot send update-tenant events to consumers still expecting the old ones.
+        - name: RABBITMQ
+          valueFrom:
+            configMapKeyRef: {name: rabbitmq-config, key: RABBITMQ, optional: true}
+        - name: TRUSTED_PROXIES
+          valueFrom:
+            configMapKeyRef: {name: authentication-config, key: TRUSTED_PROXIES, optional: true}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentication-v2
+  namespace: smtrack
+spec:
+  selector:
+    app: authentication-v2
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

@@ -10,10 +10,10 @@ jobs:
 
     runs-on: ubuntu-latest
     env:
-      IMAGE_NAME: siamatic/smtrack-auth-service:2.1.0
+      IMAGE_NAME: siamatic/smtrack-auth-service:3.0.0
     steps:
     - uses: actions/checkout@v4
-    # The image is only built and pushed (and k8s/deploy.yaml only rewritten)
+    # The image is only built and pushed (and the v2 manifests only rewritten)
     # once these pass.
     - name: Set up Go
       uses: actions/setup-go@v5
@@ -38,10 +38,10 @@ jobs:
         tags: ${{ env.IMAGE_NAME }}
     - name: Update Kubernetes manifest with new image
       run: |
-        sed -i "s|image: .*|image: ${{ env.IMAGE_NAME }}|" k8s/deploy.yaml
+        sed -i "s|image: .*|image: ${{ env.IMAGE_NAME }}|" k8s/deploy-v2.yaml k8s/purge-cronjob.yaml k8s/import-legacy-job.yaml
         git config user.name "FangLy"
         git config user.email "thefangsni@gmail.com"
-        git add k8s/deploy.yaml
+        git add k8s/deploy-v2.yaml k8s/purge-cronjob.yaml k8s/import-legacy-job.yaml
         git commit -m "${{ env.IMAGE_NAME }}"
         git push
     - name: Send success message to slack

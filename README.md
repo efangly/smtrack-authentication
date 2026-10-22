@@ -7,7 +7,7 @@ Authentication and Authorization microservice for the **SMtrack** platform, buil
 | Layer | Technology |
 |-------|-----------|
 | Framework | [Fiber v3](https://github.com/gofiber/fiber) |
-| Database | PostgreSQL (GORM) |
+| Database | PostgreSQL (GORM, `goose` migrations) |
 | Cache | Redis |
 | Messaging | RabbitMQ |
 | Auth | JWT (Access + Refresh tokens) |
@@ -25,6 +25,8 @@ internal/
 │   ├── ports/                 # Driving (services.go) and driven ports
 │   │                          #   (repositories, cache, upload, messaging, security)
 │   └── services/              # Use cases, tenant scope (scope.go), audit changes
+├── legacyimport/              # Copies the old hospital/ward database in (cmd/import-legacy)
+└── purge/                     # Permanent removal of expired soft-deleted records (cmd/purge)
 └── adapters/
     ├── driven/                # Outbound adapters (infra)
     │   ├── cache/             # Redis adapter
@@ -57,7 +59,9 @@ All routes are prefixed with `/auth`.
 | Method | Path | Description | Roles |
 |--------|------|-------------|-------|
 | `POST` | `/auth/refresh` | Refresh access token (refresh JWT) | — |
-| `PATCH` | `/auth/reset/:id` | Reset password | Any authenticated |
+| `POST` | `/auth/logout` | Revoke the caller's refresh token (body: `token`) | Any authenticated |
+| `PATCH` | `/auth/reset/:username` | Reset password (signs the user's other sessions out) | Any authenticated |
+| `GET` | `/auth/report/access` | Access review: role, status, tenant, departments, last login | SUPER, SERVICE, ADMIN, LEGACY_ADMIN |
 
 ### User Management
 
@@ -66,28 +70,34 @@ All routes are prefixed with `/auth`.
 | `POST` | `/auth/user` | Create user | SUPER, SERVICE, ADMIN, LEGACY_ADMIN |
 | `GET` | `/auth/user` | List all users | SUPER, SERVICE, ADMIN, LEGACY_ADMIN |
 | `GET` | `/auth/user/:id` | Get user by ID | Any authenticated |
-| `PUT` | `/auth/user/:id` | Update user | Any authenticated |
-| `DELETE` | `/auth/user/:id` | Delete user | Any authenticated |
+| `PUT` | `/auth/user/:id` | Update user (non-admins: own record only) | Any authenticated |
+| `DELETE` | `/auth/user/:id` | Soft delete user | SUPER, SERVICE, ADMIN, LEGACY_ADMIN |
+| `POST` | `/auth/user/:id/restore` | Restore user | SUPER, SERVICE, ADMIN, LEGACY_ADMIN |
 
-### Hospital Management
+### Tenant Management
 
-| Method | Path | Description | Roles |
-|--------|------|-------------|-------|
-| `POST` | `/auth/hospital` | Create hospital | SUPER, SERVICE |
-| `GET` | `/auth/hospital` | List all hospitals | Any authenticated |
-| `GET` | `/auth/hospital/:id` | Get hospital by ID | Any authenticated |
-| `PUT` | `/auth/hospital/:id` | Update hospital | SUPER, SERVICE |
-| `DELETE` | `/auth/hospital/:id` | Delete hospital | SUPER |
-
-### Ward Management
+A tenant is a hospital, laboratory, factory, clinic, pharmacy or other organisation.
 
 | Method | Path | Description | Roles |
 |--------|------|-------------|-------|
-| `POST` | `/auth/ward` | Create ward | SUPER, SERVICE |
-| `GET` | `/auth/ward` | List all wards | Any authenticated |
-| `GET` | `/auth/ward/:id` | Get ward by ID | Any authenticated |
-| `PUT` | `/auth/ward/:id` | Update ward | SUPER, SERVICE |
-| `DELETE` | `/auth/ward/:id` | Delete ward | SUPER, SERVICE |
+| `POST` | `/auth/tenant` | Create tenant | SUPER, SERVICE |
+| `GET` | `/auth/tenant` | List visible tenants | Any authenticated |
+| `GET` | `/auth/tenant/:id` | Get tenant (with label profile and departments) | Any authenticated |
+| `PUT` | `/auth/tenant/:id` | Update tenant | SUPER, SERVICE |
+| `PUT` | `/auth/tenant/:id/labels` | Set the tenant's own names for "tenant" and "department" per language | SUPER, SERVICE, own tenant's ADMIN / LEGACY_ADMIN |
+| `DELETE` | `/auth/tenant/:id` | Soft delete (only when it has no users or departments) | SUPER |
+| `POST` | `/auth/tenant/:id/restore` | Restore | SUPER |
+
+### Department Management
+
+| Method | Path | Description | Roles |
+|--------|------|-------------|-------|
+| `POST` | `/auth/department` | Create department | SUPER, SERVICE |
+| `GET` | `/auth/department` | List visible departments | Any authenticated |
+| `GET` | `/auth/department/:id` | Get department by ID | Any authenticated |
+| `PUT` | `/auth/department/:id` | Update department | SUPER, SERVICE |
+| `DELETE` | `/auth/department/:id` | Soft delete | SUPER, SERVICE |
+| `POST` | `/auth/department/:id/restore` | Restore | SUPER, SERVICE |
 
 ### Audit Log
 
@@ -97,9 +107,11 @@ All routes are prefixed with `/auth`.
 
 ### Tenant scope
 
-ADMIN and LEGACY_ADMIN are confined to their own hospital: user, hospital and ward
-lookups by id, user updates/deletes, and the ward a user is placed in must all belong to
-it. Anything outside reads as not found. SUPER and SERVICE act system-wide.
+A user belongs to one tenant and to any number of that tenant's departments. ADMIN and
+LEGACY_ADMIN are confined to their own tenant: user, tenant and department lookups by id, user
+updates and deletes, and the departments a user is placed in must all belong to it. Other roles
+see only their own tenant and the departments they are linked to. Hidden tenants are visible to
+SUPER only. Anything outside reads as not found. SUPER and SERVICE act system-wide.
 
 ## User Roles
 
@@ -107,7 +119,7 @@ it. Anything outside reads as not found. SUPER and SERVICE act system-wide.
 |------|-------------|
 | `SUPER` | Full system access |
 | `SERVICE` | Service-level access (inter-service) |
-| `ADMIN` | Hospital admin |
+| `ADMIN` | Tenant admin |
 | `USER` | Standard user |
 | `LEGACY_ADMIN` | Legacy system admin |
 | `LEGACY_USER` | Legacy system user |
@@ -128,8 +140,10 @@ DATABASE_URL=postgres://user:password@host:5432/dbname
 # JWT (required)
 JWT_SECRET=your-secret-key
 JWT_REFRESH_SECRET=your-refresh-secret-key
-EXPIRE_TIME=1h
+# Both secrets: >= 32 characters and different, or the service will not start.
+EXPIRE_TIME=15m
 REFRESH_EXPIRE_TIME=7d
+BCRYPT_COST=12          # minimum 12
 
 # Redis
 REDIS_HOST=localhost:6379
@@ -165,6 +179,8 @@ go run main.go
 
 ```bash
 go test ./...                       # unit, golden-response and architecture tests (no services needed)
+# real Postgres/Redis (empty databases): see CLAUDE.md for TEST_DATABASE_URL, REDIS_TEST_ADDR
+go test -tags integration ./...
 go test ./internal/adapters/driving/http/handlers/ -run TestGolden -update   # after an intended response change
 go test -tags=e2e ./test/e2e/... -v # end-to-end against a real stack; see test/e2e/main_test.go
 ```
@@ -191,15 +207,20 @@ docker run -p 8080:8080 --env-file .env smtrack-auth-service
 
 The service deploys to the `smtrack` namespace with 2 replicas.
 
+The tenant/department version runs beside the old one (ADR 0004). `k8s/deploy.yaml` is the old
+version; the new one is `k8s/deploy-v2.yaml`. Secrets (JWT secrets, `DATABASE_URL`, Redis
+password) come from the `authentication-v2-secrets` Secret; `k8s/secrets.example.yaml` is only a
+template. Cutover and rollback steps are in [`docs/ops/cutover-runbook.md`](docs/ops/cutover-runbook.md).
+
 ```bash
-kubectl apply -f k8s/deploy.yaml
+kubectl apply -f k8s/deploy-v2.yaml
+kubectl apply -f k8s/purge-cronjob.yaml   # weekly removal of expired soft-deleted records
+# k8s/import-legacy-job.yaml is a one-off, applied only during cutover (see the runbook)
 ```
 
-The deployment uses the following ConfigMaps and Secrets:
-- `authentication-config` — app settings (PORT, DATABASE_URL, token expiry, upload path)
-- `jwt-secret` — JWT_SECRET, JWT_REFRESH_SECRET
-- `redis-config` — Redis connection info
-- `rabbitmq-config` — RabbitMQ connection URL
+ConfigMaps still used for non-secret settings: `authentication-config` (upload path, trusted
+proxies), `redis-config`, `rabbitmq-config`. The security mapping is in
+[`docs/security/iso27001-controls.md`](docs/security/iso27001-controls.md).
 
 ### Health Check
 
@@ -212,5 +233,5 @@ Kubernetes probes (readiness & liveness) hit this endpoint every 30 seconds.
 ## Docker Image
 
 ```
-siamatic/smtrack-auth-service:2.0.0
+siamatic/smtrack-auth-service:3.0.0
 ```

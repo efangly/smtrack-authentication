@@ -24,7 +24,7 @@ FROM alpine:3.23.3
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /app/auth-service /app/import-legacy /app/purge ./
 

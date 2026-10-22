@@ -65,7 +65,7 @@ jobs:
     - name: Build image (not pushed)
       run: docker build -t smtrack-auth-service:pr .
     - name: Trivy image scan
-      uses: aquasecurity/trivy-action@v0.28.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: smtrack-auth-service:pr
         severity: CRITICAL,HIGH

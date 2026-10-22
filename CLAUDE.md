@@ -5,7 +5,7 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 `smtrack-authentication` — the authentication/authorization microservice for the SMtrack
-platform. Go 1.25, Fiber v3, GORM/PostgreSQL, Redis, RabbitMQ. It issues JWTs and owns the
+platform. Go 1.26, Fiber v3, GORM/PostgreSQL, Redis, RabbitMQ. It issues JWTs and owns the
 `users`, `tenants`, `departments`, `user_departments`, `tenant_profiles` and `audit_logs`
 tables. A tenant (hospital, laboratory, factory, …) has departments; a user belongs to one
 tenant and any number of its departments (`GLOSSARY.md`, ADR 0003).

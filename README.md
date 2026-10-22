@@ -12,7 +12,7 @@ Authentication and Authorization microservice for the **SMtrack** platform, buil
 | Messaging | RabbitMQ |
 | Auth | JWT (Access + Refresh tokens) |
 | Container | Docker / Kubernetes |
-| Language | Go 1.25 |
+| Language | Go 1.26 |
 
 ## Architecture
 
@@ -163,7 +163,7 @@ LOG_LEVEL=warn
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - PostgreSQL
 - Redis
 - RabbitMQ (optional, for messaging)

@@ -3,11 +3,11 @@ package domain
 // Actor is the user performing the current request, as identified by their
 // access token. A nil *Actor means there is no authenticated user.
 type Actor struct {
-	ID     string
-	Name   string
-	Role   Role
-	HosID  string
-	WardID string
+	ID            string
+	Name          string
+	Role          Role
+	TenantID      string
+	DepartmentIDs []string
 }
 
 // IsAdminTier reports whether the actor may act on records belonging to other
@@ -30,4 +30,14 @@ func (a *Actor) CanAssign(role Role) bool {
 		return false
 	}
 	return a.Role.CanAssign(role)
+}
+
+// InDepartment reports whether the actor is linked to the department.
+func (a *Actor) InDepartment(id string) bool {
+	for _, d := range a.DepartmentIDs {
+		if d == id {
+			return true
+		}
+	}
+	return false
 }

@@ -4,70 +4,66 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 )
 
-// developmentHosID is the internal test hospital hidden from every role but
-// SUPER in the listing queries (see build*Filter).
-const developmentHosID = "HID-DEVELOPMENT"
-
-// canManageUsersIn reports whether caller may read or change a user belonging
-// to hosID. SUPER and SERVICE manage users system-wide; ADMIN and
-// LEGACY_ADMIN only within their own hospital. Everyone else may only act on
+// canAdminTenant reports whether caller may read or change the users and
+// settings of tenantID. SUPER and SERVICE act system-wide; ADMIN and
+// LEGACY_ADMIN only within their own tenant. Everyone else may only act on
 // their own record, which callers check before reaching here.
-func canManageUsersIn(caller *domain.Actor, hosID string) bool {
+func canAdminTenant(caller *domain.Actor, tenantID string) bool {
 	switch caller.Role {
 	case domain.RoleSuper, domain.RoleService:
 		return true
 	case domain.RoleAdmin, domain.RoleLegacyAdmin:
-		// An admin token without a hospital must not match ward-less users.
-		return caller.HosID != "" && hosID == caller.HosID
+		// An admin token without a tenant must not match tenant-less records.
+		return caller.TenantID != "" && tenantID == caller.TenantID
 	}
 	return false
 }
 
-// userHosID is the hospital a user belongs to through its ward, or "" when the
-// ward was not loaded or does not exist.
-func userHosID(user *domain.User) string {
-	if user.Ward == nil {
-		return ""
-	}
-	return user.Ward.HosID
-}
-
-// canSeeHospital mirrors buildHospitalFilter for a single hospital, so a
-// lookup by id never reveals a hospital the caller's listing would hide.
-func canSeeHospital(caller *domain.Actor, hospital *domain.Hospital) bool {
+// canSeeTenant mirrors buildTenantFilter for a single tenant, so a lookup by
+// id never reveals a tenant the caller's listing would hide.
+func canSeeTenant(caller *domain.Actor, tenant *domain.Tenant) bool {
 	switch caller.Role {
 	case domain.RoleSuper:
 		return true
 	case domain.RoleService:
-		return hospital.ID != developmentHosID
+		return !tenant.Hidden
 	case domain.RoleAdmin, domain.RoleLegacyAdmin:
-		return caller.HosID != "" && hospital.ID == caller.HosID && hospital.ID != developmentHosID
+		return caller.TenantID != "" && tenant.ID == caller.TenantID && !tenant.Hidden
 	case domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest:
-		if caller.WardID == "" {
-			return false
-		}
-		for _, w := range hospital.Wards {
-			if w.ID == caller.WardID {
-				return true
-			}
-		}
+		return caller.TenantID != "" && tenant.ID == caller.TenantID
 	}
 	return false
 }
 
-// canSeeWard mirrors buildWardFilter for a single ward.
-func canSeeWard(caller *domain.Actor, ward *domain.Ward) bool {
+// canSeeDepartment mirrors buildDepartmentFilter for a single department.
+// department.Tenant must be loaded for the hidden-tenant rule to apply.
+func canSeeDepartment(caller *domain.Actor, department *domain.Department) bool {
+	hidden := department.Tenant != nil && department.Tenant.Hidden
 	switch caller.Role {
 	case domain.RoleSuper:
 		return true
 	case domain.RoleService:
-		return ward.HosID != developmentHosID
+		return !hidden
 	case domain.RoleAdmin, domain.RoleLegacyAdmin:
-		return caller.HosID != "" && ward.HosID == caller.HosID && ward.HosID != developmentHosID
+		return caller.TenantID != "" && department.TenantID == caller.TenantID && !hidden
 	case domain.RoleUser, domain.RoleLegacyUser, domain.RoleGuest:
-		// Listing is unscoped for these roles today (buildWardFilter
-		// default), so a lookup by id stays unscoped too.
-		return true
+		return caller.TenantID != "" && department.TenantID == caller.TenantID && caller.InDepartment(department.ID)
 	}
 	return false
+}
+
+// visibleDepartments narrows the departments embedded in a tenant to the ones
+// caller may see: a tenant-scoped admin and above see all, anyone else only
+// the departments they are linked to. It returns a new slice.
+func visibleDepartments(caller *domain.Actor, departments []domain.Department) []domain.Department {
+	if caller.IsAdminTier() {
+		return departments
+	}
+	out := make([]domain.Department, 0, len(departments))
+	for _, d := range departments {
+		if caller.InDepartment(d.ID) {
+			out = append(out, d)
+		}
+	}
+	return out
 }

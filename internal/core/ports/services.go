@@ -9,14 +9,14 @@ import (
 // LoginResult represents the result of a login operation. Its JSON shape is
 // dto.LoginResponse.
 type LoginResult struct {
-	Token        string
-	RefreshToken string
-	ID           string
-	Name         *string
-	HosID        string
-	WardID       string
-	Role         domain.Role
-	Pic          *string
+	Token         string
+	RefreshToken  string
+	ID            string
+	Name          *string
+	TenantID      string
+	DepartmentIDs []string
+	Role          domain.Role
+	Pic           *string
 }
 
 // RefreshResult represents the result of a token refresh. Its JSON shape is
@@ -33,6 +33,8 @@ type AuthService interface {
 	Login(ctx context.Context, user *domain.User) (*LoginResult, error)
 	RefreshTokens(ctx context.Context, token string) (*RefreshResult, error)
 	ResetPassword(ctx context.Context, username string, password string, oldPassword string, caller *domain.Actor) (string, error)
+	// Logout revokes the caller's refresh token. The access token expires on its own.
+	Logout(ctx context.Context, refreshToken string, caller *domain.Actor) error
 }
 
 // UserService defines the driving port for user use cases
@@ -49,24 +51,36 @@ type UserService interface {
 	FindByUsername(ctx context.Context, username string) (*domain.User, error)
 	Update(ctx context.Context, id string, patch domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
+	Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
+	// UsernameTaken reports whether username is in use, counting soft-deleted users.
+	UsernameTaken(ctx context.Context, username string) (bool, error)
+	// RecordLogin stamps the user's last successful login.
+	RecordLogin(ctx context.Context, id string) error
+	// AccessReport lists who has access to what (role, status, tenant, departments, last
+	// login) for the caller's scope, for periodic access review. The call is audited.
+	AccessReport(ctx context.Context, caller *domain.Actor) ([]domain.User, error)
 }
 
-// HospitalService defines the driving port for hospital use cases
-type HospitalService interface {
-	Create(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
-	FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error)
-	FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
-	Update(ctx context.Context, id string, patch domain.HospitalPatch, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
-	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
+// TenantService defines the driving port for tenant use cases
+type TenantService interface {
+	Create(ctx context.Context, tenant *domain.Tenant, file *domain.File, caller *domain.Actor) (*domain.Tenant, error)
+	FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Tenant, error)
+	FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error)
+	Update(ctx context.Context, id string, patch domain.TenantPatch, file *domain.File, caller *domain.Actor) (*domain.Tenant, error)
+	// UpdateLabels replaces the tenant's label profile.
+	UpdateLabels(ctx context.Context, id string, labels domain.Labels, caller *domain.Actor) (*domain.Tenant, error)
+	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error)
+	Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error)
 }
 
-// WardService defines the driving port for ward use cases
-type WardService interface {
-	Create(ctx context.Context, ward *domain.Ward, caller *domain.Actor) (*domain.Ward, error)
-	FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error)
-	FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error)
-	Update(ctx context.Context, id string, patch domain.WardPatch, caller *domain.Actor) (*domain.Ward, error)
-	Remove(ctx context.Context, id string, caller *domain.Actor) (string, error)
+// DepartmentService defines the driving port for department use cases
+type DepartmentService interface {
+	Create(ctx context.Context, department *domain.Department, caller *domain.Actor) (*domain.Department, error)
+	FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Department, error)
+	FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error)
+	Update(ctx context.Context, id string, patch domain.DepartmentPatch, caller *domain.Actor) (*domain.Department, error)
+	Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error)
+	Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error)
 }
 
 // AuditService defines the driving port for audit-log use cases.

@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
@@ -31,6 +30,10 @@ func dryRunDB(t *testing.T) (*gorm.DB, *[]string) {
 	return db, &sqls
 }
 
+// mainSQL is the statement the repository ran. A subquery passed to Where is
+// executed (in dry-run) first and recorded too, so the main query is the last.
+func mainSQL(sqls *[]string) string { return (*sqls)[len(*sqls)-1] }
+
 func TestUserFindAll_SQL(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -38,15 +41,19 @@ func TestUserFindAll_SQL(t *testing.T) {
 		want    []string
 		notWant []string
 	}{
-		{"no filter", ports.UserFilter{}, nil, []string{"JOIN", "WHERE"}},
+		{"no filter", ports.UserFilter{}, []string{`"users"."deleted_at" IS NULL`}, []string{"tenant_id", "NOT IN"}},
 		{
-			// SERVICE: excluding hospitals alone must still join Wards.
-			"exclude hospitals only", ports.UserFilter{ExcludeHosIDs: []string{"HID-DEVELOPMENT"}},
-			[]string{`JOIN "Wards" ON "Wards"."id" = "Users"."wardId"`, `"Wards"."hosId" NOT IN ($1)`}, nil,
+			"tenant", ports.UserFilter{TenantID: "T1"},
+			[]string{`users.tenant_id = $1`, `"users"."deleted_at" IS NULL`}, nil,
 		},
 		{
-			"admin", ports.UserFilter{HosID: "H1", ExcludeHosIDs: []string{"HID-DEVELOPMENT"}, ExcludeRoles: []domain.Role{domain.RoleService}},
-			[]string{`JOIN "Wards"`, `"Wards"."hosId" = $1`, `"Wards"."hosId" NOT IN ($2)`, `"Users"."role" NOT IN ($3)`}, nil,
+			// SERVICE: hidden tenants are excluded by a subquery, so no join is needed.
+			"exclude hidden tenants", ports.UserFilter{ExcludeHiddenTenants: true},
+			[]string{`users.tenant_id NOT IN (SELECT "id" FROM "tenants" WHERE hidden = $1)`}, []string{"JOIN"},
+		},
+		{
+			"admin", ports.UserFilter{TenantID: "T1", ExcludeHiddenTenants: true, ExcludeRoles: []domain.Role{domain.RoleService}},
+			[]string{`users.tenant_id = $1`, `users.tenant_id NOT IN (SELECT`, `users.role NOT IN ($3)`}, nil,
 		},
 	}
 	for _, tt := range tests {
@@ -55,28 +62,99 @@ func TestUserFindAll_SQL(t *testing.T) {
 			_, err := NewUserRepository(db).FindAll(context.Background(), tt.filter)
 			require.NoError(t, err)
 			require.NotEmpty(t, *sqls)
-			sql := (*sqls)[0]
+			sql := mainSQL(sqls)
 			for _, w := range tt.want {
 				assert.Contains(t, sql, w)
 			}
 			for _, nw := range tt.notWant {
 				assert.NotContains(t, sql, nw)
 			}
-			assert.LessOrEqual(t, strings.Count(sql, "JOIN"), 1, "Wards joined more than once: %s", sql)
 		})
 	}
 }
 
-func TestWardAndHospitalFindAll_SQL(t *testing.T) {
+// Soft-deleted rows are invisible to every ordinary read, and only the
+// FindAny* lookups see them.
+func TestSoftDeleteScope_SQL(t *testing.T) {
+	ctx := context.Background()
+
 	db, sqls := dryRunDB(t)
-	_, err := NewWardRepository(db).FindAll(context.Background(), ports.WardFilter{HosID: "H1", ExcludeHosIDs: []string{"HID-DEVELOPMENT"}})
+	_, err := NewUserRepository(db).FindByID(ctx, "U1")
 	require.NoError(t, err)
-	assert.Contains(t, (*sqls)[0], `"hosId" = $1`)
-	assert.Contains(t, (*sqls)[0], `"hosId" NOT IN ($2)`)
+	assert.Contains(t, (*sqls)[0], `"users"."deleted_at" IS NULL`)
 
 	db, sqls = dryRunDB(t)
-	_, err = NewHospitalRepository(db).FindAll(context.Background(), ports.HospitalFilter{WardID: "W1", ExcludeIDs: []string{"HID-DEVELOPMENT"}})
+	_, err = NewUserRepository(db).FindByUsername(ctx, "bob")
 	require.NoError(t, err)
-	assert.Contains(t, (*sqls)[0], `"Wards".id = $1`)
-	assert.Contains(t, (*sqls)[0], `"id" NOT IN ($2)`)
+	assert.Contains(t, (*sqls)[0], `"users"."deleted_at" IS NULL`)
+
+	db, sqls = dryRunDB(t)
+	_, err = NewUserRepository(db).FindAnyByID(ctx, "U1")
+	require.NoError(t, err)
+	assert.NotContains(t, (*sqls)[0], "deleted_at")
+
+	// A username stays reserved after a soft delete.
+	db, sqls = dryRunDB(t)
+	_, err = NewUserRepository(db).UsernameTaken(ctx, "bob")
+	require.NoError(t, err)
+	assert.NotContains(t, (*sqls)[0], "deleted_at")
+
+	db, sqls = dryRunDB(t)
+	_, err = NewTenantRepository(db).FindByID(ctx, "T1")
+	require.NoError(t, err)
+	assert.Contains(t, (*sqls)[0], `"tenants"."deleted_at" IS NULL`)
+
+	db, sqls = dryRunDB(t)
+	_, err = NewTenantRepository(db).FindAnyByID(ctx, "T1")
+	require.NoError(t, err)
+	assert.NotContains(t, (*sqls)[0], "deleted_at")
+
+	// The department name uniqueness only covers live departments.
+	db, sqls = dryRunDB(t)
+	_, err = NewDepartmentRepository(db).NameTaken(ctx, "T1", "Line", "")
+	require.NoError(t, err)
+	assert.Contains(t, (*sqls)[0], `"departments"."deleted_at" IS NULL`)
+}
+
+func TestDepartmentAndTenantFindAll_SQL(t *testing.T) {
+	ctx := context.Background()
+
+	db, sqls := dryRunDB(t)
+	_, err := NewDepartmentRepository(db).FindAll(ctx, ports.DepartmentFilter{
+		TenantID: "T1", IDs: []string{"D1", "D2"}, LimitToIDs: true, ExcludeHiddenTenants: true,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, mainSQL(sqls), `departments.tenant_id = $1`)
+	assert.Contains(t, mainSQL(sqls), `departments.id IN ($2,$3)`)
+	assert.Contains(t, mainSQL(sqls), `departments.tenant_id NOT IN (SELECT`)
+
+	// Limited to an empty set of ids matches nothing and does not query at all.
+	db, sqls = dryRunDB(t)
+	got, err := NewDepartmentRepository(db).FindAll(ctx, ports.DepartmentFilter{LimitToIDs: true})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Empty(t, *sqls)
+
+	db, sqls = dryRunDB(t)
+	_, err = NewTenantRepository(db).FindAll(ctx, ports.TenantFilter{ID: "T1", ExcludeHidden: true})
+	require.NoError(t, err)
+	assert.Contains(t, (*sqls)[0], `tenants.id = $1`)
+	assert.Contains(t, (*sqls)[0], `tenants.hidden = $2`)
+}
+
+func TestLabelsJSON_RoundTrip(t *testing.T) {
+	in := labelsJSON{"tenant": {"th": "โรงงาน", "en": "Factory"}}
+	value, err := in.Value()
+	require.NoError(t, err)
+
+	var out labelsJSON
+	require.NoError(t, out.Scan([]byte(value.(string))))
+	assert.Equal(t, in, out)
+
+	var empty labelsJSON
+	v, err := empty.Value()
+	require.NoError(t, err)
+	assert.Equal(t, "{}", v)
+	require.NoError(t, empty.Scan(nil))
+	assert.Nil(t, empty)
 }

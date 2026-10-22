@@ -1,11 +1,23 @@
 package ports
 
-import "github.com/efangly/smtrack-authentication/internal/core/domain"
+import (
+	"time"
+
+	"github.com/efangly/smtrack-authentication/internal/core/domain"
+)
 
 // TokenPair is an access token and the refresh token that renews it.
 type TokenPair struct {
 	Access  string
 	Refresh string
+}
+
+// RefreshClaims is what a verified refresh token states.
+type RefreshClaims struct {
+	UserID    string
+	TokenID   string
+	IssuedAt  time.Time
+	ExpiresAt time.Time
 }
 
 // TokenIssuer defines the driven port for issuing and verifying session tokens.
@@ -17,9 +29,9 @@ type TokenIssuer interface {
 	IssuePair(actor domain.Actor) (TokenPair, error)
 	// VerifyAccess checks an access token and returns the actor it names.
 	VerifyAccess(token string) (*domain.Actor, error)
-	// VerifyRefresh checks a refresh token and returns the user id it names.
-	// The caller must rebuild everything else from the current user record.
-	VerifyRefresh(token string) (userID string, err error)
+	// VerifyRefresh checks a refresh token and returns what it names. The caller must
+	// rebuild everything else from the current user record.
+	VerifyRefresh(token string) (*RefreshClaims, error)
 }
 
 // PasswordHasher defines the driven port for one-way password hashing.

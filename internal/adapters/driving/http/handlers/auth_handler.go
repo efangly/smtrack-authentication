@@ -32,7 +32,7 @@ func (h *AuthHandler) Register(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.SuccessResponse(result))
+	return c.Status(fiber.StatusCreated).JSON(dto.SuccessResponse(dto.FromUser(result)))
 }
 
 func (h *AuthHandler) Login(c fiber.Ctx) error {
@@ -91,4 +91,20 @@ func (h *AuthHandler) ResetPassword(c fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(result))
+}
+
+// Logout revokes the refresh token in the body; it must be the caller's own.
+func (h *AuthHandler) Logout(c fiber.Ctx) error {
+	var req dto.RefreshRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return badRequest(c, err)
+	}
+	caller := getCaller(c)
+	if caller == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(dto.FailResponse("Unauthorized"))
+	}
+	if err := h.authService.Logout(c.Context(), req.Token, caller); err != nil {
+		return serviceError(c, fiber.StatusBadRequest, err)
+	}
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse("Logged out"))
 }

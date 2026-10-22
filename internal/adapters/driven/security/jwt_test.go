@@ -17,7 +17,7 @@ const (
 	refreshSecret = "test-refresh-secret"
 )
 
-var testActor = domain.Actor{ID: "U1", Name: "Admin", Role: domain.RoleAdmin, HosID: "H1", WardID: "W1"}
+var testActor = domain.Actor{ID: "U1", Name: "Admin", Role: domain.RoleAdmin, TenantID: "T1", DepartmentIDs: []string{"D1", "D2"}}
 
 func newTestIssuer() *jwtIssuer {
 	return NewJWTIssuer(&config.Config{
@@ -44,9 +44,11 @@ func TestJWTIssuer_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testActor, *actor)
 
-	userID, err := j.VerifyRefresh(pair.Refresh)
+	claims, err := j.VerifyRefresh(pair.Refresh)
 	require.NoError(t, err)
-	assert.Equal(t, "U1", userID)
+	assert.Equal(t, "U1", claims.UserID)
+	assert.NotEmpty(t, claims.TokenID)
+	assert.True(t, claims.ExpiresAt.After(claims.IssuedAt))
 }
 
 func TestJWTIssuer_ClaimsAndLifetimes(t *testing.T) {
@@ -63,7 +65,8 @@ func TestJWTIssuer_ClaimsAndLifetimes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "access", claims["typ"])
 	assert.Equal(t, "ADMIN", claims["role"])
-	assert.Equal(t, "H1", claims["hosId"])
+	assert.Equal(t, "T1", claims["tenantId"])
+	assert.Equal(t, []any{"D1", "D2"}, claims["departmentIds"])
 	assert.EqualValues(t, now.Add(time.Hour).Unix(), claims["exp"])
 
 	claims = jwt.MapClaims{}
@@ -87,18 +90,25 @@ func TestJWTIssuer_TokenTypesAreNotInterchangeable(t *testing.T) {
 	assert.Error(t, err, "access token accepted as refresh token")
 }
 
-func TestJWTIssuer_LegacyTokenWithoutTypIsAccepted(t *testing.T) {
+func TestJWTIssuer_VerifyAccessReturnsTenantAndDepartments(t *testing.T) {
+	j := newTestIssuer()
+	pair, err := j.IssuePair(testActor)
+	require.NoError(t, err)
+
+	actor, err := j.VerifyAccess(pair.Access)
+	require.NoError(t, err)
+	assert.Equal(t, testActor, *actor)
+}
+
+func TestJWTIssuer_TokenWithoutTypIsRejected(t *testing.T) {
 	j := newTestIssuer()
 	exp := time.Now().Add(time.Hour).Unix()
-	legacy := jwt.MapClaims{"id": "U1", "role": "ADMIN", "hosId": "H1", "wardId": "W1", "exp": exp}
+	untyped := jwt.MapClaims{"id": "U1", "role": "ADMIN", "tenantId": "T1", "exp": exp}
 
-	actor, err := j.VerifyAccess(sign(t, accessSecret, legacy))
-	require.NoError(t, err)
-	assert.Equal(t, "U1", actor.ID)
-
-	userID, err := j.VerifyRefresh(sign(t, refreshSecret, legacy))
-	require.NoError(t, err)
-	assert.Equal(t, "U1", userID)
+	_, err := j.VerifyAccess(sign(t, accessSecret, untyped))
+	assert.Error(t, err)
+	_, err = j.VerifyRefresh(sign(t, refreshSecret, untyped))
+	assert.Error(t, err)
 }
 
 func TestJWTIssuer_Rejects(t *testing.T) {

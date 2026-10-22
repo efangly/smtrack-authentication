@@ -5,7 +5,8 @@
     "success": true,
     "data": {
       "id": "UID-1",
-      "wardId": "WID-1",
+      "tenantId": "TID-1",
+      "departmentIds": [],
       "username": "jdoe",
       "status": true,
       "role": "GUEST",
@@ -13,8 +14,10 @@
       "pic": null,
       "comment": "night shift",
       "createBy": null,
-      "createAt": "2024-01-02T03:04:05Z",
-      "updateAt": "2024-01-02T03:04:05Z"
+      "lastLoginAt": "2024-01-02T03:04:05Z",
+      "departments": [],
+      "createdAt": "2024-01-02T03:04:05Z",
+      "updatedAt": "2024-01-02T03:04:05Z"
     }
   }
 }

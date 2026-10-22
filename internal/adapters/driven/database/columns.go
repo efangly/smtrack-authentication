@@ -7,12 +7,11 @@ import (
 )
 
 // The *Columns functions turn a domain patch into the column map GORM
-// updates. Keys are the real (camelCase, Prisma-era) column names; only set
-// fields are included, and "updateAt" is always stamped.
+// updates. Only set fields are included, and "updated_at" is always stamped.
 
 func userColumns(p domain.UserPatch) map[string]any {
-	cols := map[string]any{"updateAt": time.Now()}
-	put(cols, "wardId", p.WardID)
+	cols := map[string]any{"updated_at": time.Now()}
+	put(cols, "tenant_id", p.TenantID)
 	put(cols, "username", p.Username)
 	put(cols, "status", p.Status)
 	if p.Role != nil {
@@ -25,30 +24,28 @@ func userColumns(p domain.UserPatch) map[string]any {
 	return cols
 }
 
-func wardColumns(p domain.WardPatch) map[string]any {
-	cols := map[string]any{"updateAt": time.Now()}
-	put(cols, "wardName", p.WardName)
-	put(cols, "wardSeq", p.WardSeq)
-	if p.Type != nil {
-		cols["type"] = string(*p.Type)
-	}
-	put(cols, "hosId", p.HosID)
+func departmentColumns(p domain.DepartmentPatch) map[string]any {
+	cols := map[string]any{"updated_at": time.Now()}
+	put(cols, "name", p.Name)
+	put(cols, "legacy", p.Legacy)
 	return cols
 }
 
-func hospitalColumns(p domain.HospitalPatch) map[string]any {
-	cols := map[string]any{"updateAt": time.Now()}
-	put(cols, "hosName", p.HosName)
-	put(cols, "hosAddress", p.HosAddress)
-	put(cols, "hosTel", p.HosTel)
-	put(cols, "userContact", p.UserContact)
-	put(cols, "userTel", p.UserTel)
-	put(cols, "hosLatitude", p.HosLatitude)
-	put(cols, "hosLongitude", p.HosLongitude)
-	put(cols, "hosPic", p.HosPic)
-	if p.HosType != nil {
-		cols["hosType"] = string(*p.HosType)
+func tenantColumns(p domain.TenantPatch) map[string]any {
+	cols := map[string]any{"updated_at": time.Now()}
+	put(cols, "name", p.Name)
+	if p.Kind != nil {
+		cols["kind"] = string(*p.Kind)
 	}
+	put(cols, "legacy", p.Legacy)
+	put(cols, "hidden", p.Hidden)
+	put(cols, "address", p.Address)
+	put(cols, "tel", p.Tel)
+	put(cols, "contact_name", p.ContactName)
+	put(cols, "contact_tel", p.ContactTel)
+	put(cols, "latitude", p.Latitude)
+	put(cols, "longitude", p.Longitude)
+	put(cols, "pic", p.Pic)
 	return cols
 }
 

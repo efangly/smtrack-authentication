@@ -8,8 +8,10 @@
       "refreshToken": "refresh.jwt",
       "id": "UID-1",
       "name": "John Doe",
-      "hosId": "HID-1",
-      "wardId": "WID-1",
+      "tenantId": "TID-1",
+      "departmentIds": [
+        "DID-1"
+      ],
       "role": "USER",
       "pic": null
     }

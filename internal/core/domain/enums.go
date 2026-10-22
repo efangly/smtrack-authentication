@@ -43,37 +43,21 @@ func (r Role) CanAssign(target Role) bool {
 	return false
 }
 
-// HosType represents hospital types
-type HosType string
+// TenantKind is what sort of organisation a tenant is.
+type TenantKind string
 
 const (
-	HosTypeHospital HosType = "HOSPITAL"
-	HosTypeLegacy   HosType = "LEGACY"
-	HosTypeClinic   HosType = "CLINIC"
-	HosTypePharmacy HosType = "PHARMACY"
-	HosTypeLab      HosType = "LAB"
-	HosTypeOther    HosType = "OTHER"
+	TenantKindHospital TenantKind = "HOSPITAL"
+	TenantKindLab      TenantKind = "LAB"
+	TenantKindFactory  TenantKind = "FACTORY"
+	TenantKindClinic   TenantKind = "CLINIC"
+	TenantKindPharmacy TenantKind = "PHARMACY"
+	TenantKindOther    TenantKind = "OTHER"
 )
 
-func (h HosType) IsValid() bool {
-	switch h {
-	case HosTypeHospital, HosTypeLegacy, HosTypeClinic, HosTypePharmacy, HosTypeLab, HosTypeOther:
-		return true
-	}
-	return false
-}
-
-// WardType represents ward types
-type WardType string
-
-const (
-	WardTypeNew    WardType = "NEW"
-	WardTypeLegacy WardType = "LEGACY"
-)
-
-func (w WardType) IsValid() bool {
-	switch w {
-	case WardTypeNew, WardTypeLegacy:
+func (k TenantKind) IsValid() bool {
+	switch k {
+	case TenantKindHospital, TenantKindLab, TenantKindFactory, TenantKindClinic, TenantKindPharmacy, TenantKindOther:
 		return true
 	}
 	return false

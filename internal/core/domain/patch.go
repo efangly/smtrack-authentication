@@ -5,35 +5,38 @@ package domain
 
 // UserPatch is a partial update of a user.
 type UserPatch struct {
-	WardID   *string
-	Username *string
-	Status   *bool
-	Role     *Role
-	Display  *string
-	Pic      *string
-	Comment  *string
+	TenantID *string
+	// DepartmentIDs replaces the user's department links when set; an empty
+	// non-nil slice removes them all.
+	DepartmentIDs *[]string
+	Username      *string
+	Status        *bool
+	Role          *Role
+	Display       *string
+	Pic           *string
+	Comment       *string
 	// Password holds the plain value; userService.Update hashes it before it
 	// reaches the repository.
 	Password *string
 }
 
-// WardPatch is a partial update of a ward.
-type WardPatch struct {
-	WardName *string
-	WardSeq  *int
-	Type     *WardType
-	HosID    *string
+// DepartmentPatch is a partial update of a department.
+type DepartmentPatch struct {
+	Name   *string
+	Legacy *bool
 }
 
-// HospitalPatch is a partial update of a hospital.
-type HospitalPatch struct {
-	HosName      *string
-	HosAddress   *string
-	HosTel       *string
-	UserContact  *string
-	UserTel      *string
-	HosLatitude  *string
-	HosLongitude *string
-	HosPic       *string
-	HosType      *HosType
+// TenantPatch is a partial update of a tenant.
+type TenantPatch struct {
+	Name        *string
+	Kind        *TenantKind
+	Legacy      *bool
+	Hidden      *bool
+	Address     *string
+	Tel         *string
+	ContactName *string
+	ContactTel  *string
+	Latitude    *string
+	Longitude   *string
+	Pic         *string
 }

@@ -60,56 +60,39 @@ func TestRole_CanAssign(t *testing.T) {
 	}
 }
 
-func TestHosType_IsValid(t *testing.T) {
+func TestTenantKind_IsValid(t *testing.T) {
 	tests := []struct {
 		name  string
-		ht    HosType
+		kind  TenantKind
 		valid bool
 	}{
-		{"HOSPITAL", HosTypeHospital, true},
-		{"LEGACY", HosTypeLegacy, true},
-		{"CLINIC", HosTypeClinic, true},
-		{"PHARMACY", HosTypePharmacy, true},
-		{"LAB", HosTypeLab, true},
-		{"OTHER", HosTypeOther, true},
-		{"empty", HosType(""), false},
-		{"INVALID", HosType("INVALID"), false},
+		{"HOSPITAL", TenantKindHospital, true},
+		{"LAB", TenantKindLab, true},
+		{"FACTORY", TenantKindFactory, true},
+		{"CLINIC", TenantKindClinic, true},
+		{"PHARMACY", TenantKindPharmacy, true},
+		{"OTHER", TenantKindOther, true},
+		{"LEGACY is a flag, not a kind", TenantKind("LEGACY"), false},
+		{"empty", TenantKind(""), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.valid, tt.ht.IsValid())
+			assert.Equal(t, tt.valid, tt.kind.IsValid())
 		})
 	}
 }
 
-func TestWardType_IsValid(t *testing.T) {
-	tests := []struct {
-		name  string
-		wt    WardType
-		valid bool
-	}{
-		{"NEW", WardTypeNew, true},
-		{"LEGACY", WardTypeLegacy, true},
-		{"empty", WardType(""), false},
-		{"INVALID", WardType("INVALID"), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.valid, tt.wt.IsValid())
-		})
-	}
+func TestActor_InDepartment(t *testing.T) {
+	a := &Actor{DepartmentIDs: []string{"D1", "D2"}}
+	assert.True(t, a.InDepartment("D2"))
+	assert.False(t, a.InDepartment("D3"))
+	assert.False(t, (&Actor{}).InDepartment("D1"))
 }
 
-func TestUser_TableName(t *testing.T) {
-	assert.Equal(t, "Users", User{}.TableName())
-}
-
-func TestWard_TableName(t *testing.T) {
-	assert.Equal(t, "Wards", Ward{}.TableName())
-}
-
-func TestHospital_TableName(t *testing.T) {
-	assert.Equal(t, "Hospitals", Hospital{}.TableName())
+func TestUser_LinkedDepartmentIDs(t *testing.T) {
+	u := User{Departments: []Department{{ID: "D1"}, {ID: "D2"}}}
+	assert.Equal(t, []string{"D1", "D2"}, u.LinkedDepartmentIDs())
+	assert.Empty(t, (&User{}).LinkedDepartmentIDs())
 }
 
 func TestActor_IsAdminTier(t *testing.T) {

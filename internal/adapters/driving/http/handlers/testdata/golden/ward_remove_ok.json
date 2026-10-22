@@ -1,8 +1,0 @@
-{
-  "status": 200,
-  "body": {
-    "message": "Success",
-    "success": true,
-    "data": "Ward deleted successfully"
-  }
-}

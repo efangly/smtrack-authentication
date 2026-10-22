@@ -37,5 +37,5 @@ func (h *AuditHandler) FindAll(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(logs))
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromAuditLogs(logs)))
 }

@@ -20,7 +20,10 @@ type redisAdapter struct {
 	client *redis.Client
 }
 
-func NewRedisAdapter(cfg *config.Config) ports.CachePort {
+// NewRedisAdapter connects to Redis and returns the one client as both the cache and the
+// session store (failed logins, revoked tokens), which share a server but not a keyspace:
+// session keys start with "auth:", and cache invalidation is by other prefixes.
+func NewRedisAdapter(cfg *config.Config) (ports.CachePort, ports.SessionStore) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisHost,
 		Password: cfg.RedisPassword,
@@ -34,7 +37,8 @@ func NewRedisAdapter(cfg *config.Config) ports.CachePort {
 		logger.Info("Redis connected successfully")
 	}
 
-	return &redisAdapter{client: client}
+	r := &redisAdapter{client: client}
+	return r, r
 }
 
 // Values are stored as JSON.

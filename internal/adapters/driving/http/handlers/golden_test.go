@@ -24,9 +24,9 @@ import (
 )
 
 // The golden tests pin the exact JSON every endpoint writes — status, envelope,
-// field names, nulls and omitted fields — so refactors that move serialization
-// out of the domain types (see docs/refactor/hexagonal-plan.md, Phase 6) cannot
-// change what clients receive without failing here.
+// field names, nulls and omitted fields — so a change to a response DTO cannot
+// reach clients without failing here. The domain types carry no tags, so what
+// is pinned is dto/mapping.go.
 //
 // Regenerate after an *intended* response change with:
 //
@@ -41,53 +41,62 @@ var goldenTime = time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 
 func ptr[T any](v T) *T { return &v }
 
-func goldenHospital() *domain.Hospital {
-	return &domain.Hospital{
-		ID:          "HID-1",
-		HosName:     "General Hospital",
-		HosSeq:      7,
-		HosAddress:  ptr("1 Main Rd"),
-		HosTel:      ptr("021234567"),
-		UserContact: ptr("Contact Person"),
-		UserTel:     nil,
-		HosLatitude: ptr("13.7563"),
-		HosPic:      nil,
-		HosType:     domain.HosTypeHospital,
-		CreatedAt:   goldenTime,
-		UpdatedAt:   goldenTime,
-		Wards: []domain.Ward{{
-			ID: "WID-1", WardName: "Ward A", WardSeq: 1, Type: ptr(domain.WardTypeNew),
-			HosID: "HID-1", CreatedAt: goldenTime, UpdatedAt: goldenTime,
+func goldenTenant() *domain.Tenant {
+	return &domain.Tenant{
+		ID:          "TID-1",
+		Seq:         7,
+		Name:        "Acme Plant",
+		Kind:        domain.TenantKindFactory,
+		Address:     ptr("1 Main Rd"),
+		Tel:         ptr("021234567"),
+		ContactName: ptr("Contact Person"),
+		ContactTel:  nil,
+		Latitude:    ptr("13.7563"),
+		Pic:         nil,
+		// Only the department label is the tenant's own; the tenant label
+		// falls back to the default for its kind.
+		Labels:    domain.Labels{"department": {"th": "สายการผลิต", "en": "Line"}},
+		CreatedAt: goldenTime,
+		UpdatedAt: goldenTime,
+		Departments: []domain.Department{{
+			ID: "DID-1", Seq: 1, TenantID: "TID-1", Name: "Line A",
+			CreatedAt: goldenTime, UpdatedAt: goldenTime,
 		}},
 	}
 }
 
-func goldenWard() *domain.Ward {
-	h := goldenHospital()
-	h.Wards = nil
-	return &domain.Ward{
-		ID: "WID-1", WardName: "Ward A", WardSeq: 1, Type: ptr(domain.WardTypeNew),
-		HosID: "HID-1", CreatedAt: goldenTime, UpdatedAt: goldenTime,
-		Hospital: h,
+func goldenDepartment() *domain.Department {
+	t := goldenTenant()
+	t.Departments = nil
+	return &domain.Department{
+		ID: "DID-1", Seq: 1, TenantID: "TID-1", Name: "Line A", Legacy: true,
+		CreatedAt: goldenTime, UpdatedAt: goldenTime,
+		Tenant: t,
 	}
 }
 
 func goldenUser() *domain.User {
-	w := goldenWard()
+	t := goldenTenant()
+	t.Departments = nil
 	return &domain.User{
-		ID:        "UID-1",
-		WardID:    "WID-1",
-		Username:  "jdoe",
-		Password:  "$2a$10$this-hash-must-never-appear-in-a-response",
-		Status:    true,
-		Role:      domain.RoleUser,
-		Display:   ptr("John Doe"),
-		Pic:       nil,
-		Comment:   ptr("night shift"),
-		CreateBy:  nil,
-		CreatedAt: goldenTime,
-		UpdatedAt: goldenTime,
-		Ward:      w,
+		ID:          "UID-1",
+		TenantID:    "TID-1",
+		Username:    "jdoe",
+		Password:    "$2a$10$this-hash-must-never-appear-in-a-response",
+		Status:      true,
+		Role:        domain.RoleUser,
+		Display:     ptr("John Doe"),
+		Pic:         nil,
+		Comment:     ptr("night shift"),
+		CreateBy:    nil,
+		LastLoginAt: &goldenTime,
+		CreatedAt:   goldenTime,
+		UpdatedAt:   goldenTime,
+		Tenant:      t,
+		Departments: []domain.Department{{
+			ID: "DID-1", Seq: 1, TenantID: "TID-1", Name: "Line A",
+			CreatedAt: goldenTime, UpdatedAt: goldenTime,
+		}},
 	}
 }
 
@@ -95,13 +104,13 @@ func goldenAuditLog() domain.AuditLog {
 	return domain.AuditLog{
 		ID: "AID-1", Entity: domain.AuditEntityUser, EntityID: "UID-1",
 		Action: domain.AuditActionUpdate, ActorID: "UID-0", ActorName: "Admin",
-		Changes: `{"display":"John Doe"}`, CreatedAt: goldenTime,
+		Changes: `{"display":"John Doe"}`, TenantID: "TID-1", CreatedAt: goldenTime,
 	}
 }
 
 var (
-	goldenSuper = &domain.Actor{ID: "UID-0", Name: "Root", Role: "SUPER", HosID: "HID-1", WardID: "WID-1"}
-	goldenGuest = &domain.Actor{ID: "UID-9", Name: "Guest", Role: "GUEST", HosID: "HID-1", WardID: "WID-1"}
+	goldenSuper = &domain.Actor{ID: "UID-0", Name: "Root", Role: "SUPER", TenantID: "TID-1", DepartmentIDs: []string{"DID-1"}}
+	goldenGuest = &domain.Actor{ID: "UID-9", Name: "Guest", Role: "GUEST", TenantID: "TID-1", DepartmentIDs: []string{"DID-1"}}
 
 	errDomain   = errors.New("username already exists")
 	errInternal = fmt.Errorf("database error: %w", errors.New(`pq: relation "Users" does not exist`))
@@ -122,21 +131,21 @@ type goldenCase struct {
 func goldenCases() []goldenCase {
 	user := goldenUser()
 	userList := []domain.User{*goldenUser()}
-	hospital := goldenHospital()
-	ward := goldenWard()
+	tenant := goldenTenant()
+	department := goldenDepartment()
 
 	okAuth := &mockAuthService{
 		RegisterFn: func(_ context.Context, _ *domain.User, _ *domain.File) (*domain.User, error) {
 			u := goldenUser()
 			u.Role = domain.RoleGuest
-			u.Ward = nil
+			u.Tenant, u.Departments = nil, nil
 			return u, nil
 		},
 		ValidateUserFn: func(_ context.Context, _, _ string) (*domain.User, error) { return goldenUser(), nil },
 		LoginFn: func(_ context.Context, _ *domain.User) (*ports.LoginResult, error) {
 			return &ports.LoginResult{
 				Token: "access.jwt", RefreshToken: "refresh.jwt", ID: "UID-1", Name: ptr("John Doe"),
-				HosID: "HID-1", WardID: "WID-1", Role: "USER", Pic: nil,
+				TenantID: "TID-1", DepartmentIDs: []string{"DID-1"}, Role: "USER", Pic: nil,
 			}, nil
 		},
 		RefreshTokensFn: func(_ context.Context, _ string) (*ports.RefreshResult, error) {
@@ -168,7 +177,8 @@ func goldenCases() []goldenCase {
 		UpdateFn: func(_ context.Context, _ string, _ domain.UserPatch, _ *domain.File, _ *domain.Actor) (*domain.User, error) {
 			return user, nil
 		},
-		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
+		RemoveFn:  func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
+		RestoreFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.User, error) { return user, nil },
 	}
 	emptyUsers := &mockUserService{
 		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.User, error) { return []domain.User{}, nil },
@@ -177,32 +187,37 @@ func goldenCases() []goldenCase {
 		},
 	}
 
-	okHospitals := &mockHospitalService{
-		CreateFn: func(_ context.Context, _ *domain.Hospital, _ *domain.File, _ *domain.Actor) (*domain.Hospital, error) {
-			return hospital, nil
+	okTenants := &mockTenantService{
+		CreateFn: func(_ context.Context, _ *domain.Tenant, _ *domain.File, _ *domain.Actor) (*domain.Tenant, error) {
+			return tenant, nil
 		},
-		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Hospital, error) {
-			return []domain.Hospital{*goldenHospital()}, nil
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Tenant, error) {
+			return []domain.Tenant{*goldenTenant()}, nil
 		},
-		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },
-		UpdateFn: func(_ context.Context, _ string, _ domain.HospitalPatch, _ *domain.File, _ *domain.Actor) (*domain.Hospital, error) {
-			return hospital, nil
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Tenant, error) { return tenant, nil },
+		UpdateFn: func(_ context.Context, _ string, _ domain.TenantPatch, _ *domain.File, _ *domain.Actor) (*domain.Tenant, error) {
+			return tenant, nil
 		},
-		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) { return hospital, nil },
+		UpdateLabelsFn: func(_ context.Context, _ string, _ domain.Labels, _ *domain.Actor) (*domain.Tenant, error) {
+			return tenant, nil
+		},
+		RemoveFn:  func(_ context.Context, _ string, _ *domain.Actor) (*domain.Tenant, error) { return tenant, nil },
+		RestoreFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Tenant, error) { return tenant, nil },
 	}
 
-	okWards := &mockWardService{
-		CreateFn: func(_ context.Context, _ *domain.Ward, _ *domain.Actor) (*domain.Ward, error) { return ward, nil },
-		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Ward, error) {
-			return []domain.Ward{*goldenWard()}, nil
+	okDepartments := &mockDepartmentService{
+		CreateFn: func(_ context.Context, _ *domain.Department, _ *domain.Actor) (*domain.Department, error) {
+			return department, nil
 		},
-		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Ward, error) { return ward, nil },
-		UpdateFn: func(_ context.Context, _ string, _ domain.WardPatch, _ *domain.Actor) (*domain.Ward, error) {
-			return ward, nil
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Department, error) {
+			return []domain.Department{*goldenDepartment()}, nil
 		},
-		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (string, error) {
-			return "Ward deleted successfully", nil
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Department, error) { return department, nil },
+		UpdateFn: func(_ context.Context, _ string, _ domain.DepartmentPatch, _ *domain.Actor) (*domain.Department, error) {
+			return department, nil
 		},
+		RemoveFn:  func(_ context.Context, _ string, _ *domain.Actor) (*domain.Department, error) { return department, nil },
+		RestoreFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Department, error) { return department, nil },
 	}
 
 	okAudit := &mockAuditService{
@@ -217,15 +232,15 @@ func goldenCases() []goldenCase {
 	u := func(svc *mockUserService, pick func(*UserHandler) fiber.Handler) func() fiber.Handler {
 		return func() fiber.Handler { return pick(NewUserHandler(svc)) }
 	}
-	ho := func(pick func(*HospitalHandler) fiber.Handler) func() fiber.Handler {
-		return func() fiber.Handler { return pick(NewHospitalHandler(okHospitals)) }
+	te := func(pick func(*TenantHandler) fiber.Handler) func() fiber.Handler {
+		return func() fiber.Handler { return pick(NewTenantHandler(okTenants)) }
 	}
-	w := func(pick func(*WardHandler) fiber.Handler) func() fiber.Handler {
-		return func() fiber.Handler { return pick(NewWardHandler(okWards)) }
+	de := func(pick func(*DepartmentHandler) fiber.Handler) func() fiber.Handler {
+		return func() fiber.Handler { return pick(NewDepartmentHandler(okDepartments)) }
 	}
 
-	register := `{"wardId":"WID-1","username":"jdoe","password":"secret12"}`
-	newUser := `{"wardId":"WID-1","username":"jdoe","password":"secret12","role":"USER"}`
+	register := `{"tenantId":"TID-1","username":"jdoe","password":"secret12"}`
+	newUser := `{"tenantId":"TID-1","departmentIds":["DID-1"],"username":"jdoe","password":"secret12","role":"USER"}`
 
 	return []goldenCase{
 		{name: "health", method: http.MethodGet, route: "/health", target: "/health",
@@ -276,30 +291,43 @@ func goldenCases() []goldenCase {
 			caller: goldenSuper, h: u(okUsers, func(h *UserHandler) fiber.Handler { return h.Update })},
 		{name: "user_remove_ok", method: http.MethodDelete, route: "/user/:id", target: "/user/UID-1",
 			caller: goldenSuper, h: u(okUsers, func(h *UserHandler) fiber.Handler { return h.Remove })},
+		{name: "user_restore_ok", method: http.MethodPost, route: "/user/:id/restore", target: "/user/UID-1/restore",
+			caller: goldenSuper, h: u(okUsers, func(h *UserHandler) fiber.Handler { return h.Restore })},
 
-		// hospitals
-		{name: "hospital_create_ok", method: http.MethodPost, route: "/hospital", target: "/hospital", body: `{"hosName":"General Hospital"}`,
-			caller: goldenSuper, h: ho(func(h *HospitalHandler) fiber.Handler { return h.Create })},
-		{name: "hospital_findall_ok", method: http.MethodGet, route: "/hospital", target: "/hospital",
-			caller: goldenSuper, h: ho(func(h *HospitalHandler) fiber.Handler { return h.FindAll })},
-		{name: "hospital_findone_ok", method: http.MethodGet, route: "/hospital/:id", target: "/hospital/HID-1",
-			caller: goldenSuper, h: ho(func(h *HospitalHandler) fiber.Handler { return h.FindOne })},
-		{name: "hospital_update_ok", method: http.MethodPut, route: "/hospital/:id", target: "/hospital/HID-1", body: `{"hosName":"General Hospital"}`,
-			caller: goldenSuper, h: ho(func(h *HospitalHandler) fiber.Handler { return h.Update })},
-		{name: "hospital_remove_ok", method: http.MethodDelete, route: "/hospital/:id", target: "/hospital/HID-1",
-			caller: goldenSuper, h: ho(func(h *HospitalHandler) fiber.Handler { return h.Remove })},
+		// tenants
+		{name: "tenant_create_ok", method: http.MethodPost, route: "/tenant", target: "/tenant", body: `{"name":"Acme Plant","kind":"FACTORY"}`,
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.Create })},
+		{name: "tenant_create_validation", method: http.MethodPost, route: "/tenant", target: "/tenant", body: `{"kind":"FACTORY"}`,
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.Create })},
+		{name: "tenant_findall_ok", method: http.MethodGet, route: "/tenant", target: "/tenant",
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.FindAll })},
+		{name: "tenant_findone_ok", method: http.MethodGet, route: "/tenant/:id", target: "/tenant/TID-1",
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.FindOne })},
+		{name: "tenant_update_ok", method: http.MethodPut, route: "/tenant/:id", target: "/tenant/TID-1", body: `{"name":"Acme Plant"}`,
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.Update })},
+		{name: "tenant_labels_ok", method: http.MethodPut, route: "/tenant/:id/labels", target: "/tenant/TID-1/labels",
+			body:   `{"labels":{"department":{"th":"สายการผลิต","en":"Line"}}}`,
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.UpdateLabels })},
+		{name: "tenant_labels_missing", method: http.MethodPut, route: "/tenant/:id/labels", target: "/tenant/TID-1/labels", body: `{}`,
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.UpdateLabels })},
+		{name: "tenant_remove_ok", method: http.MethodDelete, route: "/tenant/:id", target: "/tenant/TID-1",
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.Remove })},
+		{name: "tenant_restore_ok", method: http.MethodPost, route: "/tenant/:id/restore", target: "/tenant/TID-1/restore",
+			caller: goldenSuper, h: te(func(h *TenantHandler) fiber.Handler { return h.Restore })},
 
-		// wards
-		{name: "ward_create_ok", method: http.MethodPost, route: "/ward", target: "/ward", body: `{"wardName":"Ward A","hosId":"HID-1"}`,
-			caller: goldenSuper, h: w(func(h *WardHandler) fiber.Handler { return h.Create })},
-		{name: "ward_findall_ok", method: http.MethodGet, route: "/ward", target: "/ward",
-			caller: goldenSuper, h: w(func(h *WardHandler) fiber.Handler { return h.FindAll })},
-		{name: "ward_findone_ok", method: http.MethodGet, route: "/ward/:id", target: "/ward/WID-1",
-			caller: goldenSuper, h: w(func(h *WardHandler) fiber.Handler { return h.FindOne })},
-		{name: "ward_update_ok", method: http.MethodPut, route: "/ward/:id", target: "/ward/WID-1", body: `{"wardName":"Ward A"}`,
-			caller: goldenSuper, h: w(func(h *WardHandler) fiber.Handler { return h.Update })},
-		{name: "ward_remove_ok", method: http.MethodDelete, route: "/ward/:id", target: "/ward/WID-1",
-			caller: goldenSuper, h: w(func(h *WardHandler) fiber.Handler { return h.Remove })},
+		// departments
+		{name: "department_create_ok", method: http.MethodPost, route: "/department", target: "/department", body: `{"name":"Line A","tenantId":"TID-1"}`,
+			caller: goldenSuper, h: de(func(h *DepartmentHandler) fiber.Handler { return h.Create })},
+		{name: "department_findall_ok", method: http.MethodGet, route: "/department", target: "/department",
+			caller: goldenSuper, h: de(func(h *DepartmentHandler) fiber.Handler { return h.FindAll })},
+		{name: "department_findone_ok", method: http.MethodGet, route: "/department/:id", target: "/department/DID-1",
+			caller: goldenSuper, h: de(func(h *DepartmentHandler) fiber.Handler { return h.FindOne })},
+		{name: "department_update_ok", method: http.MethodPut, route: "/department/:id", target: "/department/DID-1", body: `{"name":"Line A"}`,
+			caller: goldenSuper, h: de(func(h *DepartmentHandler) fiber.Handler { return h.Update })},
+		{name: "department_remove_ok", method: http.MethodDelete, route: "/department/:id", target: "/department/DID-1",
+			caller: goldenSuper, h: de(func(h *DepartmentHandler) fiber.Handler { return h.Remove })},
+		{name: "department_restore_ok", method: http.MethodPost, route: "/department/:id/restore", target: "/department/DID-1/restore",
+			caller: goldenSuper, h: de(func(h *DepartmentHandler) fiber.Handler { return h.Restore })},
 
 		// audit
 		{name: "audit_findall_ok", method: http.MethodGet, route: "/audit", target: "/audit?entity=USER&limit=10",

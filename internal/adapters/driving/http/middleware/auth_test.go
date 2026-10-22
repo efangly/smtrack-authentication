@@ -30,7 +30,16 @@ func testIssuer() ports.TokenIssuer {
 	return security.NewJWTIssuer(&config.Config{JWTSecret: testJWTSecret, JWTRefreshSecret: testRefreshSecret})
 }
 
+// createTestToken signs claims with secret. A token must carry its type, so one
+// is added (matching the secret) unless the test sets its own.
 func createTestToken(secret string, claims jwt.MapClaims) string {
+	if _, ok := claims["typ"]; !ok {
+		typ := "access"
+		if secret == testRefreshSecret {
+			typ = "refresh"
+		}
+		claims["typ"] = typ
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, _ := token.SignedString([]byte(secret))
 	return tokenStr
@@ -38,13 +47,13 @@ func createTestToken(secret string, claims jwt.MapClaims) string {
 
 func validClaims() jwt.MapClaims {
 	return jwt.MapClaims{
-		"id":     "U1",
-		"name":   "Test User",
-		"role":   "ADMIN",
-		"hosId":  "H1",
-		"wardId": "W1",
-		"exp":    float64(time.Now().Add(1 * time.Hour).Unix()),
-		"iat":    float64(time.Now().Unix()),
+		"id":       "U1",
+		"jti":      "jti-1",
+		"name":     "Test User",
+		"role":     "ADMIN",
+		"tenantId": "T1",
+		"exp":      float64(time.Now().Add(1 * time.Hour).Unix()),
+		"iat":      float64(time.Now().Unix()),
 	}
 }
 

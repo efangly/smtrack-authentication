@@ -8,112 +8,97 @@ import (
 	"testing"
 )
 
-type userListEntry struct {
-	ID   string `json:"id"`
-	Ward *struct {
-		WardName string `json:"wardName"`
-		HosID    string `json:"hosId"`
-		Hospital *struct {
-			HosName string `json:"hosName"`
-		} `json:"hospital,omitempty"`
-	} `json:"ward,omitempty"`
-}
+// TestCacheCascade_DepartmentRename_InvalidatesUserListing is the regression
+// check CLAUDE.md calls out: anything that changes a tenant or department must
+// also invalidate `user`, because user listings embed their departments.
+func TestCacheCascade_DepartmentRename_InvalidatesUserListing(t *testing.T) {
+	admin := adminToken(t)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	deptID := createDepartment(t, admin, tenantID)
+	user := createUser(t, admin, tenantID, deptID)
 
-func fetchUserListEntry(t *testing.T, callerToken, userID string) userListEntry {
-	t.Helper()
-	resp, env := doJSON(t, http.MethodGet, "/user", nil, callerToken)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("list users: status %d, message %q", resp.StatusCode, env.Message)
-	}
-	var users []userListEntry
-	if err := json.Unmarshal(env.Data, &users); err != nil {
-		t.Fatalf("decode user list: %v", err)
-	}
-	for _, u := range users {
-		if u.ID == userID {
-			return u
+	findInListing := func() userView {
+		for _, u := range listUsers(t, admin) {
+			if u.ID == user.ID {
+				return u
+			}
 		}
-	}
-	t.Fatalf("user %s not found in listing", userID)
-	return userListEntry{}
-}
-
-// TestCacheCascade_WardRename_InvalidatesUserListing is the regression check
-// CLAUDE.md calls out: "Anything that changes a ward or hospital must also
-// invalidate `user`, because user listings preload their ward." Before this
-// round's fix, renaming a ward left the cached /auth/user listing showing
-// the old ward name.
-func TestCacheCascade_WardRename_InvalidatesUserListing(t *testing.T) {
-	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
-
-	before := fetchUserListEntry(t, admin, user.ID) // populates the user-list cache
-	if before.Ward == nil {
-		t.Fatal("expected the listing to embed the user's ward")
+		t.Fatalf("user %s not found in listing", user.ID)
+		return userView{}
 	}
 
-	newWardName := e2eName("renamed-ward")
-	updResp, updEnv := doJSON(t, http.MethodPut, "/ward/"+wardID, map[string]any{
-		"wardName": newWardName,
-	}, admin)
+	before := findInListing() // populates the user-list cache
+	if len(before.Departments) != 1 {
+		t.Fatalf("expected the listing to embed the user's department, got %+v", before.Departments)
+	}
+
+	newName := e2eName("renamed-dept")
+	updResp, updEnv := doJSON(t, http.MethodPut, "/department/"+deptID, map[string]any{"name": newName}, admin)
 	if updResp.StatusCode != http.StatusOK {
-		t.Fatalf("rename ward: status %d, message %q", updResp.StatusCode, updEnv.Message)
+		t.Fatalf("rename department: status %d, message %q", updResp.StatusCode, updEnv.Message)
 	}
 
-	after := fetchUserListEntry(t, admin, user.ID)
-	if after.Ward == nil {
-		t.Fatal("expected the listing to embed the user's ward after rename")
-	}
-	if after.Ward.WardName != newWardName {
-		t.Errorf("user listing shows ward name %q, want %q (stale user cache after ward update)",
-			after.Ward.WardName, newWardName)
+	after := findInListing()
+	if len(after.Departments) != 1 || after.Departments[0].Name != newName {
+		t.Errorf("user listing shows departments %+v, want name %q (stale user cache after department update)",
+			after.Departments, newName)
 	}
 }
 
-// TestCacheCascade_HospitalRename_InvalidatesUserDetail checks the same
-// cascade one level further out: a hospital-name change should also bust the
-// single-user cache, since GET /auth/user/:id preloads ward -> hospital.
-// (The list endpoint only preloads "Ward", not "Ward.Hospital", so this uses
-// the detail endpoint instead of the listing used above.)
-func TestCacheCascade_HospitalRename_InvalidatesUserDetail(t *testing.T) {
+// TestCacheCascade_TenantRename_InvalidatesUserDetail checks the same cascade
+// for the single-user cache: GET /auth/user/:id embeds the tenant.
+func TestCacheCascade_TenantRename_InvalidatesUserDetail(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 
-	fetchDetail := func() userListEntry {
-		resp, env := doJSON(t, http.MethodGet, "/user/"+user.ID, nil, admin)
+	before := getUser(t, admin, user.ID) // populates the user:<id> cache
+	if before.Tenant == nil {
+		t.Fatal("expected user detail to embed the tenant")
+	}
+
+	newName := e2eName("renamed-tenant")
+	updResp, updEnv := doJSON(t, http.MethodPut, "/tenant/"+tenantID, map[string]any{"name": newName}, admin)
+	if updResp.StatusCode != http.StatusOK {
+		t.Fatalf("rename tenant: status %d, message %q", updResp.StatusCode, updEnv.Message)
+	}
+
+	after := getUser(t, admin, user.ID)
+	if after.Tenant == nil || after.Tenant.Name != newName {
+		t.Errorf("user detail shows tenant %+v, want name %q (stale user cache after tenant update)", after.Tenant, newName)
+	}
+}
+
+// TestCacheCascade_LabelChange_ReachesTenantRead verifies a label edit shows up
+// in the next read of the tenant.
+func TestCacheCascade_LabelChange_ReachesTenantRead(t *testing.T) {
+	admin := adminToken(t)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	_ = createUser(t, admin, tenantID)
+
+	read := func() string {
+		resp, env := doJSON(t, http.MethodGet, "/tenant/"+tenantID, nil, admin)
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("get user detail: status %d, message %q", resp.StatusCode, env.Message)
+			t.Fatalf("get tenant: status %d, message %q", resp.StatusCode, env.Message)
 		}
-		var detail userListEntry
-		if err := json.Unmarshal(env.Data, &detail); err != nil {
-			t.Fatalf("decode user detail: %v", err)
+		var tn struct {
+			Labels map[string]map[string]string `json:"labels"`
 		}
-		return detail
+		if err := json.Unmarshal(env.Data, &tn); err != nil {
+			t.Fatalf("decode tenant: %v", err)
+		}
+		return tn.Labels["department"]["en"]
 	}
-
-	before := fetchDetail() // populates the user:<id> cache
-	if before.Ward == nil || before.Ward.Hospital == nil {
-		t.Fatal("expected user detail to embed ward -> hospital")
+	if got := read(); got != "Ward" {
+		t.Fatalf("default department label for a hospital = %q, want Ward", got)
 	}
-
-	newHosName := e2eName("renamed-hospital")
-	updResp, updEnv := doJSON(t, http.MethodPut, "/hospital/"+hosID, map[string]any{
-		"hosName": newHosName,
+	resp, env := doJSON(t, http.MethodPut, "/tenant/"+tenantID+"/labels", map[string]any{
+		"labels": map[string]any{"department": map[string]string{"en": "Unit"}},
 	}, admin)
-	if updResp.StatusCode != http.StatusOK {
-		t.Fatalf("rename hospital: status %d, message %q", updResp.StatusCode, updEnv.Message)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("set labels: status %d, message %q", resp.StatusCode, env.Message)
 	}
-
-	after := fetchDetail()
-	if after.Ward == nil || after.Ward.Hospital == nil {
-		t.Fatal("expected user detail to embed ward -> hospital after rename")
-	}
-	if after.Ward.Hospital.HosName != newHosName {
-		t.Errorf("user detail shows hospital name %q, want %q (stale user cache after hospital update)",
-			after.Ward.Hospital.HosName, newHosName)
+	if got := read(); got != "Unit" {
+		t.Errorf("department label after edit = %q, want Unit (stale tenant cache)", got)
 	}
 }

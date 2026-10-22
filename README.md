@@ -182,7 +182,7 @@ go test ./...                       # unit, golden-response and architecture tes
 # real Postgres/Redis (empty databases): see CLAUDE.md for TEST_DATABASE_URL, REDIS_TEST_ADDR
 go test -tags integration ./...
 go test ./internal/adapters/driving/http/handlers/ -run TestGolden -update   # after an intended response change
-go test -tags=e2e ./test/e2e/... -v # end-to-end against a real stack; see test/e2e/main_test.go
+go test -tags=e2e ./test/e2e/... -v # end-to-end against a real stack (needs a seeded SUPER account, ~7 min); see test/e2e/main_test.go
 ```
 
 The domain vocabulary is in [`GLOSSARY.md`](GLOSSARY.md), architectural decisions in

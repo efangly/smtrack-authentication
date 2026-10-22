@@ -36,9 +36,8 @@ func decodeJWTClaims(t *testing.T, token string) map[string]any {
 // working immediately instead of remaining valid for its full lifetime.
 func TestRefresh_DeactivatedUser_LosesAccess(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 
 	login := loginAs(t, user.Username, user.Password)
 
@@ -65,9 +64,8 @@ func TestRefresh_DeactivatedUser_LosesAccess(t *testing.T) {
 // the refresh token was issued.
 func TestRefresh_RoleChange_ReflectsNewRoleInClaims(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 
 	login := loginAs(t, user.Username, user.Password)
 	issuedClaims := decodeJWTClaims(t, login.RefreshToken)
@@ -98,5 +96,45 @@ func TestRefresh_RoleChange_ReflectsNewRoleInClaims(t *testing.T) {
 	newClaims := decodeJWTClaims(t, result.Token)
 	if newClaims["role"] != "USER" {
 		t.Errorf("refreshed token role = %v, want USER (rebuilt from DB, not copied from old token)", newClaims["role"])
+	}
+}
+
+// TestRefresh_DepartmentChange_ReflectsNewDepartmentsInClaims verifies the
+// department list in the token follows the database at the next refresh.
+func TestRefresh_DepartmentChange_ReflectsNewDepartmentsInClaims(t *testing.T) {
+	admin := adminToken(t)
+	tenantID := createTenant(t, admin, "FACTORY")
+	line1 := createDepartment(t, admin, tenantID)
+	line2 := createDepartment(t, admin, tenantID)
+	user := createUser(t, admin, tenantID, line1)
+
+	login := loginAs(t, user.Username, user.Password)
+	claims := decodeJWTClaims(t, login.Token)
+	if claims["tenantId"] != tenantID {
+		t.Fatalf("claims tenantId = %v, want %s", claims["tenantId"], tenantID)
+	}
+	if ids, _ := claims["departmentIds"].([]any); len(ids) != 1 || ids[0] != line1 {
+		t.Fatalf("claims departmentIds = %v, want [%s]", claims["departmentIds"], line1)
+	}
+
+	if resp, env := doJSON(t, http.MethodPut, "/user/"+user.ID, map[string]any{
+		"departmentIds": []string{line1, line2},
+	}, admin); resp.StatusCode != http.StatusOK {
+		t.Fatalf("link second department: status %d, message %q", resp.StatusCode, env.Message)
+	}
+
+	resp, env := doJSON(t, http.MethodPost, "/refresh", map[string]string{"token": login.RefreshToken}, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("refresh: status %d, message %q", resp.StatusCode, env.Message)
+	}
+	var refreshed struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(env.Data, &refreshed); err != nil {
+		t.Fatalf("decode refresh result: %v", err)
+	}
+	ids, _ := decodeJWTClaims(t, refreshed.Token)["departmentIds"].([]any)
+	if len(ids) != 2 {
+		t.Errorf("refreshed departmentIds = %v, want both departments", ids)
 	}
 }

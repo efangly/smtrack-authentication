@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -25,27 +26,27 @@ func TestErrorDiscipline_DomainNotFound_PassesMessageThrough(t *testing.T) {
 	}
 }
 
-// TestErrorDiscipline_InfraError_ReturnsGenericMessage verifies the other
-// half of the rule: an error the repository wraps with %w (here, a foreign
-// key violation from creating a ward under a hosId that doesn't exist) must
-// not leak driver/SQL detail to the client — serviceError should replace it
-// with "Internal server error".
-func TestErrorDiscipline_InfraError_ReturnsGenericMessage(t *testing.T) {
+// TestErrorDiscipline_NoSQLDetailReachesClient creates a department under a
+// tenant that does not exist. Whichever layer rejects it, the client must get
+// a plain message: no driver or SQL detail (serviceError replaces anything that
+// wraps an infrastructure cause with "Internal server error").
+func TestErrorDiscipline_NoSQLDetailReachesClient(t *testing.T) {
 	admin := adminToken(t)
 
-	resp, env := doJSON(t, http.MethodPost, "/ward", map[string]any{
-		"wardName": e2eName("orphan-ward"),
-		"hosId":    uuid.New().String(), // no such hospital
+	resp, env := doJSON(t, http.MethodPost, "/department", map[string]any{
+		"name":     e2eName("orphan-dept"),
+		"tenantId": uuid.New().String(), // no such tenant
 	}, admin)
 
 	if resp.StatusCode < 400 {
-		t.Fatalf("creating a ward under a nonexistent hospital unexpectedly succeeded: status %d", resp.StatusCode)
+		t.Fatalf("creating a department under a nonexistent tenant unexpectedly succeeded: status %d", resp.StatusCode)
 	}
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Skipf("got status %d instead of a wrapped-infra 500; the FK violation may not be the code path exercised here (message: %q)",
-			resp.StatusCode, env.Message)
+	for _, leak := range []string{"SQLSTATE", "violates", "constraint", "pq:", "pgx", "gorm"} {
+		if strings.Contains(env.Message, leak) {
+			t.Errorf("message %q leaks %q", env.Message, leak)
+		}
 	}
-	if env.Message != "Internal server error" {
-		t.Errorf("message = %q, want the generic message (driver/SQL detail must not reach the client)", env.Message)
+	if resp.StatusCode == http.StatusInternalServerError && env.Message != "Internal server error" {
+		t.Errorf("a 500 must carry the generic message, got %q", env.Message)
 	}
 }

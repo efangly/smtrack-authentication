@@ -5,6 +5,7 @@ package e2e
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 // TestResetPassword_Self_WithCorrectOldPassword_Succeeds verifies the normal
@@ -12,9 +13,8 @@ import (
 // password logs in.
 func TestResetPassword_Self_WithCorrectOldPassword_Succeeds(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 	login := loginAs(t, user.Username, user.Password)
 
 	newPassword := "NewPass456"
@@ -33,9 +33,8 @@ func TestResetPassword_Self_WithCorrectOldPassword_Succeeds(t *testing.T) {
 // incorrect oldPassword is rejected for a non-SUPER caller.
 func TestResetPassword_Self_WithWrongOldPassword_Rejected(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 	login := loginAs(t, user.Username, user.Password)
 
 	wrongResp, _ := doJSON(t, http.MethodPatch, "/reset/"+user.Username, map[string]string{
@@ -60,10 +59,9 @@ func TestResetPassword_Self_WithWrongOldPassword_Rejected(t *testing.T) {
 // just a proof-of-old-password check).
 func TestResetPassword_NonAdminOnOtherAccount_Rejected(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	self := createUser(t, admin, wardID)
-	other := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	self := createUser(t, admin, tenantID)
+	other := createUser(t, admin, tenantID)
 	login := loginAs(t, self.Username, self.Password)
 
 	resp, _ := doJSON(t, http.MethodPatch, "/reset/"+other.Username, map[string]string{
@@ -83,9 +81,8 @@ func TestResetPassword_NonAdminOnOtherAccount_Rejected(t *testing.T) {
 // be skipped/adjusted rather than treated as a real regression.
 func TestResetPassword_SuperOnOtherAccount_NoOldPasswordRequired(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	target := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	target := createUser(t, admin, tenantID)
 
 	resp, env := doJSON(t, http.MethodPatch, "/reset/"+target.Username, map[string]string{
 		"password": "NewPass456",
@@ -97,4 +94,31 @@ func TestResetPassword_SuperOnOtherAccount_NoOldPasswordRequired(t *testing.T) {
 	}
 
 	loginAs(t, target.Username, "NewPass456")
+}
+
+// TestResetPassword_InvalidatesEarlierRefreshTokens verifies a password change
+// ends the sessions started with the old password: the refresh token issued
+// before the reset stops working, while signing in again does.
+func TestResetPassword_InvalidatesEarlierRefreshTokens(t *testing.T) {
+	admin := adminToken(t)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
+	before := loginAs(t, user.Username, user.Password)
+
+	// Token timestamps have one-second resolution; make sure the reset is later.
+	time.Sleep(1100 * time.Millisecond)
+	resp, env := doJSON(t, http.MethodPatch, "/reset/"+user.Username, map[string]string{
+		"password": "NewPass456",
+	}, admin)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reset: status %d, message %q", resp.StatusCode, env.Message)
+	}
+
+	if resp, _ := doJSON(t, http.MethodPost, "/refresh", map[string]string{"token": before.RefreshToken}, ""); resp.StatusCode == http.StatusOK {
+		t.Error("a refresh token issued before the password change still works")
+	}
+	after := loginAs(t, user.Username, "NewPass456")
+	if resp, env := doJSON(t, http.MethodPost, "/refresh", map[string]string{"token": after.RefreshToken}, ""); resp.StatusCode != http.StatusOK {
+		t.Errorf("refresh token issued after the change: status %d, message %q", resp.StatusCode, env.Message)
+	}
 }

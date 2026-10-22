@@ -19,9 +19,8 @@ type auditEntry struct {
 // only.
 func TestAuditLog_NonAdmin_Forbidden(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 	login := loginAs(t, user.Username, user.Password)
 
 	resp, _ := doJSON(t, http.MethodGet, "/audit", nil, login.Token)
@@ -36,9 +35,8 @@ func TestAuditLog_NonAdmin_Forbidden(t *testing.T) {
 // password.
 func TestAuditLog_RecordsUserLifecycle_AndSanitizesPassword(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID) // CREATE
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID) // CREATE
 
 	updResp, updEnv := doJSON(t, http.MethodPut, "/user/"+user.ID, map[string]any{
 		"display": "audit test display",
@@ -97,9 +95,9 @@ func containsPasswordKey(changesJSON string) bool {
 // TestAuditLog_FiltersByEntityAndAction verifies query params narrow results.
 func TestAuditLog_FiltersByEntityAndAction(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin) // CREATE HOSPITAL entry
+	tenantID := createTenant(t, admin, "HOSPITAL") // CREATE TENANT entry
 
-	resp, env := doJSON(t, http.MethodGet, "/audit?entity=HOSPITAL&action=CREATE&entityId="+hosID, nil, admin)
+	resp, env := doJSON(t, http.MethodGet, "/audit?entity=TENANT&action=CREATE&entityId="+tenantID, nil, admin)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list filtered audit logs: status %d, message %q", resp.StatusCode, env.Message)
 	}
@@ -108,10 +106,10 @@ func TestAuditLog_FiltersByEntityAndAction(t *testing.T) {
 		t.Fatalf("decode audit entries: %v", err)
 	}
 	if len(entries) == 0 {
-		t.Fatal("expected at least one HOSPITAL/CREATE audit entry for the hospital just created")
+		t.Fatal("expected at least one TENANT/CREATE audit entry for the tenant just created")
 	}
 	for _, e := range entries {
-		if e.Entity != "HOSPITAL" || e.Action != "CREATE" {
+		if e.Entity != "TENANT" || e.Action != "CREATE" {
 			t.Errorf("filter leaked non-matching entry: entity=%q action=%q", e.Entity, e.Action)
 		}
 	}

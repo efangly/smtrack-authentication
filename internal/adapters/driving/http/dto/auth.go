@@ -24,27 +24,27 @@ type ResetPasswordRequest struct {
 
 // LoginResponse is the JSON body of a successful login.
 type LoginResponse struct {
-	Token        string      `json:"token"`
-	RefreshToken string      `json:"refreshToken"`
-	ID           string      `json:"id"`
-	Name         *string     `json:"name"`
-	HosID        string      `json:"hosId"`
-	WardID       string      `json:"wardId"`
-	Role         domain.Role `json:"role"`
-	Pic          *string     `json:"pic"`
+	Token         string      `json:"token"`
+	RefreshToken  string      `json:"refreshToken"`
+	ID            string      `json:"id"`
+	Name          *string     `json:"name"`
+	TenantID      string      `json:"tenantId"`
+	DepartmentIDs []string    `json:"departmentIds"`
+	Role          domain.Role `json:"role"`
+	Pic           *string     `json:"pic"`
 }
 
 // FromLoginResult converts the core login result to its JSON shape.
 func FromLoginResult(r *ports.LoginResult) LoginResponse {
 	return LoginResponse{
-		Token:        r.Token,
-		RefreshToken: r.RefreshToken,
-		ID:           r.ID,
-		Name:         r.Name,
-		HosID:        r.HosID,
-		WardID:       r.WardID,
-		Role:         r.Role,
-		Pic:          r.Pic,
+		Token:         r.Token,
+		RefreshToken:  r.RefreshToken,
+		ID:            r.ID,
+		Name:          r.Name,
+		TenantID:      r.TenantID,
+		DepartmentIDs: nonNil(r.DepartmentIDs),
+		Role:          r.Role,
+		Pic:           r.Pic,
 	}
 }
 

@@ -8,8 +8,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// testCost is the configured minimum, so the test exercises the production work factor.
+const testCost = 12
+
 func TestBcryptHasher(t *testing.T) {
-	h := NewBcryptHasher()
+	h := NewBcryptHasher(testCost)
 
 	hash, err := h.Hash("pass1234")
 	require.NoError(t, err)
@@ -17,7 +20,7 @@ func TestBcryptHasher(t *testing.T) {
 
 	cost, err := bcrypt.Cost([]byte(hash))
 	require.NoError(t, err)
-	assert.Equal(t, bcryptCost, cost)
+	assert.Equal(t, testCost, cost)
 
 	assert.True(t, h.Compare(hash, "pass1234"))
 	assert.False(t, h.Compare(hash, "wrong"))
@@ -31,5 +34,5 @@ func TestBcryptHasher(t *testing.T) {
 func TestBcryptHasher_AcceptsExistingHashes(t *testing.T) {
 	existing, err := bcrypt.GenerateFromPassword([]byte("legacy-pass"), 10)
 	require.NoError(t, err)
-	assert.True(t, NewBcryptHasher().Compare(string(existing), "legacy-pass"))
+	assert.True(t, NewBcryptHasher(testCost).Compare(string(existing), "legacy-pass"))
 }

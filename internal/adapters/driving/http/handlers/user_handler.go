@@ -34,10 +34,23 @@ func (h *UserHandler) Create(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.SuccessResponse(result))
+	return c.Status(fiber.StatusCreated).JSON(dto.SuccessResponse(dto.FromUser(result)))
 }
 
 // FindAll handles getting all users
+// AccessReport lists the users in the caller's scope for access review.
+func (h *UserHandler) AccessReport(c fiber.Ctx) error {
+	caller := getCaller(c)
+	if caller == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(dto.FailResponse("Unauthorized"))
+	}
+	users, err := h.userService.AccessReport(c.Context(), caller)
+	if err != nil {
+		return serviceError(c, fiber.StatusBadRequest, err)
+	}
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromUsers(users)))
+}
+
 func (h *UserHandler) FindAll(c fiber.Ctx) error {
 	caller := getCaller(c)
 	if caller == nil {
@@ -49,7 +62,7 @@ func (h *UserHandler) FindAll(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(users))
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromUsers(users)))
 }
 
 // FindOne handles getting a single user
@@ -69,7 +82,7 @@ func (h *UserHandler) FindOne(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusNotFound, err)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(user))
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromUser(user)))
 }
 
 // Update handles user update
@@ -91,8 +104,8 @@ func (h *UserHandler) Update(c fiber.Ctx) error {
 			return c.Status(fiber.StatusForbidden).JSON(dto.FailResponse("You can only update your own account"))
 		}
 		// A non-admin must not be able to grant itself a role, reactivate a
-		// disabled account, or move itself into another ward.
-		patch.Role, patch.Status, patch.WardID = nil, nil, nil
+		// disabled account, or move itself to another tenant or department.
+		patch.Role, patch.Status, patch.TenantID, patch.DepartmentIDs = nil, nil, nil, nil
 	}
 
 	file, err := formFile(c, "image")
@@ -105,7 +118,7 @@ func (h *UserHandler) Update(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(result))
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromUser(result)))
 }
 
 // Remove handles user deletion
@@ -118,5 +131,18 @@ func (h *UserHandler) Remove(c fiber.Ctx) error {
 		return serviceError(c, fiber.StatusBadRequest, err)
 	}
 
-	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(result))
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromUser(result)))
+}
+
+// Restore handles bringing a soft-deleted user back
+func (h *UserHandler) Restore(c fiber.Ctx) error {
+	id := c.Params("id")
+	caller := getCaller(c)
+
+	result, err := h.userService.Restore(c.Context(), id, caller)
+	if err != nil {
+		return serviceError(c, fiber.StatusBadRequest, err)
+	}
+
+	return c.Status(fiber.StatusOK).JSON(dto.SuccessResponse(dto.FromUser(result)))
 }

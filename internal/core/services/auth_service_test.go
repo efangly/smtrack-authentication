@@ -17,12 +17,19 @@ func newTestAuthService(userSvc *mockUserService) (ports.AuthService, *mockCache
 }
 
 func newTestAuthServiceFull(userSvc *mockUserService) (ports.AuthService, *mockCache, *mockUpload, *fakeTokens, *fakeHasher) {
+	svc, cache, upload, tokens, hasher, _, _ := newTestAuthServiceAll(userSvc)
+	return svc, cache, upload, tokens, hasher
+}
+
+func newTestAuthServiceAll(userSvc *mockUserService) (ports.AuthService, *mockCache, *mockUpload, *fakeTokens, *fakeHasher, *fakeSessions, *recordedAudit) {
 	cache := newMockCache()
 	upload := newMockUpload()
 	tokens := &fakeTokens{}
 	hasher := &fakeHasher{}
-	svc := NewAuthService(userSvc, cache, upload, tokens, hasher)
-	return svc, cache, upload, tokens, hasher
+	sessions := newFakeSessions()
+	audit := newRecordedAudit()
+	svc := NewAuthService(userSvc, cache, sessions, upload, tokens, hasher, audit)
+	return svc, cache, upload, tokens, hasher, sessions, audit
 }
 
 // --- Register ---
@@ -30,9 +37,6 @@ func newTestAuthServiceFull(userSvc *mockUserService) (ports.AuthService, *mockC
 func TestAuthService_Register_Success(t *testing.T) {
 	var passwordSeenByCreate string
 	userSvc := &mockUserService{
-		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return nil, nil // no existing user
-		},
 		CreateFn: func(_ context.Context, user *domain.User, _ *domain.Actor) (*domain.User, error) {
 			passwordSeenByCreate = user.Password
 			return user, nil
@@ -43,7 +47,7 @@ func TestAuthService_Register_Success(t *testing.T) {
 	user, err := svc.Register(context.Background(), &domain.User{
 		Username: "TestUser",
 		Password: "pass1234",
-		WardID:   "W1",
+		TenantID: "T1",
 	}, nil)
 
 	require.NoError(t, err)
@@ -55,9 +59,8 @@ func TestAuthService_Register_Success(t *testing.T) {
 
 func TestAuthService_Register_DuplicateUsername(t *testing.T) {
 	userSvc := &mockUserService{
-		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return &domain.User{ID: "existing"}, nil
-		},
+		// Soft-deleted users count: the username stays reserved.
+		UsernameTakenFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
 	}
 	svc, _, _ := newTestAuthService(userSvc)
 
@@ -71,9 +74,6 @@ func TestAuthService_Register_DuplicateUsername(t *testing.T) {
 
 func TestAuthService_Register_WithFile(t *testing.T) {
 	userSvc := &mockUserService{
-		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return nil, nil
-		},
 		CreateFn: func(_ context.Context, user *domain.User, _ *domain.Actor) (*domain.User, error) {
 			return user, nil
 		},
@@ -162,11 +162,11 @@ func TestAuthService_Login_Success(t *testing.T) {
 
 	display := "Admin"
 	user := &domain.User{
-		ID:      "U1",
-		Role:    domain.RoleAdmin,
-		WardID:  "W1",
-		Ward:    &domain.Ward{HosID: "H1"},
-		Display: &display,
+		ID:          "U1",
+		Role:        domain.RoleAdmin,
+		TenantID:    "T1",
+		Departments: []domain.Department{{ID: "D1"}, {ID: "D2"}},
+		Display:     &display,
 	}
 
 	result, err := svc.Login(context.Background(), user)
@@ -175,12 +175,12 @@ func TestAuthService_Login_Success(t *testing.T) {
 	assert.Equal(t, "refresh:U1", result.RefreshToken)
 	assert.Equal(t, "U1", result.ID)
 	assert.Equal(t, domain.RoleAdmin, result.Role)
-	assert.Equal(t, "H1", result.HosID)
-	assert.Equal(t, "W1", result.WardID)
+	assert.Equal(t, "T1", result.TenantID)
+	assert.Equal(t, []string{"D1", "D2"}, result.DepartmentIDs)
 
-	// The tokens carry the user's identity, with the hospital taken from the ward.
+	// The tokens carry the user's identity, tenant and departments.
 	require.Len(t, tokens.issued, 1)
-	assert.Equal(t, domain.Actor{ID: "U1", Name: "Admin", Role: domain.RoleAdmin, HosID: "H1", WardID: "W1"}, tokens.issued[0])
+	assert.Equal(t, domain.Actor{ID: "U1", Name: "Admin", Role: domain.RoleAdmin, TenantID: "T1", DepartmentIDs: []string{"D1", "D2"}}, tokens.issued[0])
 }
 
 // --- RefreshTokens ---
@@ -188,13 +188,7 @@ func TestAuthService_Login_Success(t *testing.T) {
 func TestAuthService_RefreshTokens_Success(t *testing.T) {
 	userSvc := &mockUserService{
 		FindByIDFn: func(_ context.Context, id string) (*domain.User, error) {
-			return &domain.User{
-				ID:     id,
-				Role:   domain.RoleAdmin,
-				WardID: "W1",
-				Status: true,
-				Ward:   &domain.Ward{HosID: "H1"},
-			}, nil
+			return &domain.User{ID: id, Role: domain.RoleAdmin, TenantID: "T1", Status: true}, nil
 		},
 	}
 	svc, _, _, tokens, _ := newTestAuthServiceFull(userSvc)
@@ -277,17 +271,17 @@ func TestAuthService_ResetPassword_UserNotFound(t *testing.T) {
 	assert.EqualError(t, err, "user not found")
 }
 
-// --- Register error from FindByUsername ---
+// --- Register error from UsernameTaken ---
 
-func TestAuthService_Register_FindByUsernameError(t *testing.T) {
+func TestAuthService_Register_UsernameTakenError(t *testing.T) {
 	userSvc := &mockUserService{
-		FindByUsernameFn: func(_ context.Context, _ string) (*domain.User, error) {
-			return nil, errors.New("db error")
+		UsernameTakenFn: func(_ context.Context, _ string) (bool, error) {
+			return false, errors.New("db error")
 		},
 	}
 	svc, _, _ := newTestAuthService(userSvc)
 
-	_, err := svc.Register(context.Background(), &domain.User{Username: "u1", Password: "pass"}, nil)
+	_, err := svc.Register(context.Background(), &domain.User{Username: "u1", Password: "pass-long-enough-1"}, nil)
 	assert.EqualError(t, err, "db error")
 }
 

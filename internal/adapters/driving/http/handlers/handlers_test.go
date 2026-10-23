@@ -14,6 +14,7 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/adapters/driving/http/dto"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
+	"github.com/efangly/smtrack-authentication/pkg/validator"
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +28,11 @@ type mockAuthService struct {
 	LoginFn         func(ctx context.Context, user *domain.User) (*ports.LoginResult, error)
 	RefreshTokensFn func(ctx context.Context, token string) (*ports.RefreshResult, error)
 	ResetPasswordFn func(ctx context.Context, username string, password string, oldPassword string, caller *domain.Actor) (string, error)
+	LogoutFn        func(ctx context.Context, refreshToken string, caller *domain.Actor) error
+}
+
+func (m *mockAuthService) Logout(ctx context.Context, refreshToken string, caller *domain.Actor) error {
+	return m.LogoutFn(ctx, refreshToken, caller)
 }
 
 func (m *mockAuthService) Register(ctx context.Context, data *domain.User, file *domain.File) (*domain.User, error) {
@@ -53,6 +59,8 @@ type mockUserService struct {
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
 	UpdateFn         func(ctx context.Context, id string, data domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
+	RestoreFn        func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
+	AccessReportFn   func(ctx context.Context, caller *domain.Actor) ([]domain.User, error)
 }
 
 func (m *mockUserService) Create(ctx context.Context, user *domain.User, caller *domain.Actor) (*domain.User, error) {
@@ -76,53 +84,73 @@ func (m *mockUserService) Update(ctx context.Context, id string, data domain.Use
 func (m *mockUserService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
 	return m.RemoveFn(ctx, id, caller)
 }
-
-type mockHospitalService struct {
-	CreateFn  func(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
-	FindAllFn func(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error)
-	FindOneFn func(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
-	UpdateFn  func(ctx context.Context, id string, data domain.HospitalPatch, file *domain.File, caller *domain.Actor) (*domain.Hospital, error)
-	RemoveFn  func(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error)
+func (m *mockUserService) Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
+	return m.RestoreFn(ctx, id, caller)
+}
+func (m *mockUserService) UsernameTaken(context.Context, string) (bool, error) { return false, nil }
+func (m *mockUserService) RecordLogin(context.Context, string) error           { return nil }
+func (m *mockUserService) AccessReport(ctx context.Context, caller *domain.Actor) ([]domain.User, error) {
+	return m.AccessReportFn(ctx, caller)
 }
 
-func (m *mockHospitalService) Create(ctx context.Context, hospital *domain.Hospital, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
-	return m.CreateFn(ctx, hospital, file, caller)
+type mockTenantService struct {
+	CreateFn       func(ctx context.Context, tenant *domain.Tenant, file *domain.File, caller *domain.Actor) (*domain.Tenant, error)
+	FindAllFn      func(ctx context.Context, caller *domain.Actor) ([]domain.Tenant, error)
+	FindOneFn      func(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error)
+	UpdateFn       func(ctx context.Context, id string, data domain.TenantPatch, file *domain.File, caller *domain.Actor) (*domain.Tenant, error)
+	UpdateLabelsFn func(ctx context.Context, id string, labels domain.Labels, caller *domain.Actor) (*domain.Tenant, error)
+	RemoveFn       func(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error)
+	RestoreFn      func(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error)
 }
-func (m *mockHospitalService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Hospital, error) {
+
+func (m *mockTenantService) Create(ctx context.Context, tenant *domain.Tenant, file *domain.File, caller *domain.Actor) (*domain.Tenant, error) {
+	return m.CreateFn(ctx, tenant, file, caller)
+}
+func (m *mockTenantService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Tenant, error) {
 	return m.FindAllFn(ctx, caller)
 }
-func (m *mockHospitalService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
+func (m *mockTenantService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error) {
 	return m.FindOneFn(ctx, id, caller)
 }
-func (m *mockHospitalService) Update(ctx context.Context, id string, data domain.HospitalPatch, file *domain.File, caller *domain.Actor) (*domain.Hospital, error) {
+func (m *mockTenantService) Update(ctx context.Context, id string, data domain.TenantPatch, file *domain.File, caller *domain.Actor) (*domain.Tenant, error) {
 	return m.UpdateFn(ctx, id, data, file, caller)
 }
-func (m *mockHospitalService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Hospital, error) {
+func (m *mockTenantService) UpdateLabels(ctx context.Context, id string, labels domain.Labels, caller *domain.Actor) (*domain.Tenant, error) {
+	return m.UpdateLabelsFn(ctx, id, labels, caller)
+}
+func (m *mockTenantService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error) {
 	return m.RemoveFn(ctx, id, caller)
 }
-
-type mockWardService struct {
-	CreateFn  func(ctx context.Context, ward *domain.Ward, caller *domain.Actor) (*domain.Ward, error)
-	FindAllFn func(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error)
-	FindOneFn func(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error)
-	UpdateFn  func(ctx context.Context, id string, data domain.WardPatch, caller *domain.Actor) (*domain.Ward, error)
-	RemoveFn  func(ctx context.Context, id string, caller *domain.Actor) (string, error)
+func (m *mockTenantService) Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.Tenant, error) {
+	return m.RestoreFn(ctx, id, caller)
 }
 
-func (m *mockWardService) Create(ctx context.Context, ward *domain.Ward, caller *domain.Actor) (*domain.Ward, error) {
-	return m.CreateFn(ctx, ward, caller)
+type mockDepartmentService struct {
+	CreateFn  func(ctx context.Context, department *domain.Department, caller *domain.Actor) (*domain.Department, error)
+	FindAllFn func(ctx context.Context, caller *domain.Actor) ([]domain.Department, error)
+	FindOneFn func(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error)
+	UpdateFn  func(ctx context.Context, id string, data domain.DepartmentPatch, caller *domain.Actor) (*domain.Department, error)
+	RemoveFn  func(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error)
+	RestoreFn func(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error)
 }
-func (m *mockWardService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Ward, error) {
+
+func (m *mockDepartmentService) Create(ctx context.Context, department *domain.Department, caller *domain.Actor) (*domain.Department, error) {
+	return m.CreateFn(ctx, department, caller)
+}
+func (m *mockDepartmentService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.Department, error) {
 	return m.FindAllFn(ctx, caller)
 }
-func (m *mockWardService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Ward, error) {
+func (m *mockDepartmentService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error) {
 	return m.FindOneFn(ctx, id, caller)
 }
-func (m *mockWardService) Update(ctx context.Context, id string, data domain.WardPatch, caller *domain.Actor) (*domain.Ward, error) {
+func (m *mockDepartmentService) Update(ctx context.Context, id string, data domain.DepartmentPatch, caller *domain.Actor) (*domain.Department, error) {
 	return m.UpdateFn(ctx, id, data, caller)
 }
-func (m *mockWardService) Remove(ctx context.Context, id string, caller *domain.Actor) (string, error) {
+func (m *mockDepartmentService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error) {
 	return m.RemoveFn(ctx, id, caller)
+}
+func (m *mockDepartmentService) Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.Department, error) {
+	return m.RestoreFn(ctx, id, caller)
 }
 
 type mockAuditService struct {
@@ -464,115 +492,115 @@ func TestUserHandler_Remove_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// ── Hospital Handler Tests ─────────────────────────────────────────
+// ── Tenant Handler Tests ─────────────────────────────────────────
 
-func TestHospitalHandler_FindAll_Success(t *testing.T) {
-	svc := &mockHospitalService{
-		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Hospital, error) {
-			return []domain.Hospital{{ID: "H1"}}, nil
+func TestTenantHandler_FindAll_Success(t *testing.T) {
+	svc := &mockTenantService{
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Tenant, error) {
+			return []domain.Tenant{{ID: "T1"}}, nil
 		},
 	}
 	app := fiber.New()
-	h := NewHospitalHandler(svc)
-	app.Get("/hospitals", injectCaller(&domain.Actor{ID: "U1", Role: "ADMIN"}), h.FindAll)
+	h := NewTenantHandler(svc)
+	app.Get("/tenants", injectCaller(&domain.Actor{ID: "U1", Role: "ADMIN"}), h.FindAll)
 
-	req := httptest.NewRequest(http.MethodGet, "/hospitals", nil)
+	req := httptest.NewRequest(http.MethodGet, "/tenants", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestHospitalHandler_FindAll_NoCaller(t *testing.T) {
-	svc := &mockHospitalService{}
+func TestTenantHandler_FindAll_NoCaller(t *testing.T) {
+	svc := &mockTenantService{}
 	app := fiber.New()
-	h := NewHospitalHandler(svc)
-	app.Get("/hospitals", h.FindAll)
+	h := NewTenantHandler(svc)
+	app.Get("/tenants", h.FindAll)
 
-	req := httptest.NewRequest(http.MethodGet, "/hospitals", nil)
+	req := httptest.NewRequest(http.MethodGet, "/tenants", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func TestHospitalHandler_FindOne_Success(t *testing.T) {
-	svc := &mockHospitalService{
-		FindOneFn: func(_ context.Context, id string, _ *domain.Actor) (*domain.Hospital, error) {
-			return &domain.Hospital{ID: id}, nil
+func TestTenantHandler_FindOne_Success(t *testing.T) {
+	svc := &mockTenantService{
+		FindOneFn: func(_ context.Context, id string, _ *domain.Actor) (*domain.Tenant, error) {
+			return &domain.Tenant{ID: id}, nil
 		},
 	}
 	app := fiber.New()
-	h := NewHospitalHandler(svc)
-	app.Get("/hospitals/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
+	h := NewTenantHandler(svc)
+	app.Get("/tenants/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
 
-	req := httptest.NewRequest(http.MethodGet, "/hospitals/H1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/tenants/T1", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestHospitalHandler_FindOne_NotFound(t *testing.T) {
-	svc := &mockHospitalService{
-		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) {
+func TestTenantHandler_FindOne_NotFound(t *testing.T) {
+	svc := &mockTenantService{
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Tenant, error) {
 			return nil, errors.New("not found")
 		},
 	}
 	app := fiber.New()
-	h := NewHospitalHandler(svc)
-	app.Get("/hospitals/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
+	h := NewTenantHandler(svc)
+	app.Get("/tenants/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
 
-	req := httptest.NewRequest(http.MethodGet, "/hospitals/NOPE", nil)
+	req := httptest.NewRequest(http.MethodGet, "/tenants/NOPE", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-func TestHospitalHandler_Remove_Success(t *testing.T) {
-	svc := &mockHospitalService{
-		RemoveFn: func(_ context.Context, id string, _ *domain.Actor) (*domain.Hospital, error) {
-			return &domain.Hospital{ID: id}, nil
+func TestTenantHandler_Remove_Success(t *testing.T) {
+	svc := &mockTenantService{
+		RemoveFn: func(_ context.Context, id string, _ *domain.Actor) (*domain.Tenant, error) {
+			return &domain.Tenant{ID: id}, nil
 		},
 	}
 	app := fiber.New()
-	h := NewHospitalHandler(svc)
-	app.Delete("/hospitals/:id", h.Remove)
+	h := NewTenantHandler(svc)
+	app.Delete("/tenants/:id", h.Remove)
 
-	req := httptest.NewRequest(http.MethodDelete, "/hospitals/H1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/tenants/T1", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestHospitalHandler_Remove_Error(t *testing.T) {
-	svc := &mockHospitalService{
-		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Hospital, error) {
+func TestTenantHandler_Remove_Error(t *testing.T) {
+	svc := &mockTenantService{
+		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Tenant, error) {
 			return nil, errors.New("remove failed")
 		},
 	}
 	app := fiber.New()
-	h := NewHospitalHandler(svc)
-	app.Delete("/hospitals/:id", h.Remove)
+	h := NewTenantHandler(svc)
+	app.Delete("/tenants/:id", h.Remove)
 
-	req := httptest.NewRequest(http.MethodDelete, "/hospitals/H1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/tenants/T1", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
-// ── Ward Handler Tests ─────────────────────────────────────────────
+// ── Department Handler Tests ─────────────────────────────────────────────
 
-func TestWardHandler_Create_Success(t *testing.T) {
-	svc := &mockWardService{
-		CreateFn: func(_ context.Context, w *domain.Ward, _ *domain.Actor) (*domain.Ward, error) {
+func TestDepartmentHandler_Create_Success(t *testing.T) {
+	svc := &mockDepartmentService{
+		CreateFn: func(_ context.Context, w *domain.Department, _ *domain.Actor) (*domain.Department, error) {
 			w.ID = "W-NEW"
 			return w, nil
 		},
 	}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Post("/wards", h.Create)
+	h := NewDepartmentHandler(svc)
+	app.Post("/departments", h.Create)
 
-	req := httptest.NewRequest(http.MethodPost, "/wards",
-		jsonBody(t, map[string]string{"wardName": "ICU", "hosId": "H1"}))
+	req := httptest.NewRequest(http.MethodPost, "/departments",
+		jsonBody(t, map[string]string{"name": "ICU", "tenantId": "T1"}))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -580,18 +608,18 @@ func TestWardHandler_Create_Success(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 }
 
-func TestWardHandler_Create_Error(t *testing.T) {
-	svc := &mockWardService{
-		CreateFn: func(_ context.Context, _ *domain.Ward, _ *domain.Actor) (*domain.Ward, error) {
-			return nil, errors.New("duplicate ward")
+func TestDepartmentHandler_Create_Error(t *testing.T) {
+	svc := &mockDepartmentService{
+		CreateFn: func(_ context.Context, _ *domain.Department, _ *domain.Actor) (*domain.Department, error) {
+			return nil, errors.New("duplicate department")
 		},
 	}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Post("/wards", h.Create)
+	h := NewDepartmentHandler(svc)
+	app.Post("/departments", h.Create)
 
-	req := httptest.NewRequest(http.MethodPost, "/wards",
-		jsonBody(t, map[string]string{"wardName": "ICU", "hosId": "H1"}))
+	req := httptest.NewRequest(http.MethodPost, "/departments",
+		jsonBody(t, map[string]string{"name": "ICU", "tenantId": "T1"}))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := app.Test(req)
@@ -599,93 +627,93 @@ func TestWardHandler_Create_Error(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
-func TestWardHandler_FindAll_Success(t *testing.T) {
-	svc := &mockWardService{
-		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Ward, error) {
-			return []domain.Ward{{ID: "W1"}, {ID: "W2"}}, nil
+func TestDepartmentHandler_FindAll_Success(t *testing.T) {
+	svc := &mockDepartmentService{
+		FindAllFn: func(_ context.Context, _ *domain.Actor) ([]domain.Department, error) {
+			return []domain.Department{{ID: "D1"}, {ID: "D2"}}, nil
 		},
 	}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Get("/wards", injectCaller(&domain.Actor{ID: "U1", Role: "ADMIN", HosID: "H1"}), h.FindAll)
+	h := NewDepartmentHandler(svc)
+	app.Get("/departments", injectCaller(&domain.Actor{ID: "U1", Role: "ADMIN", TenantID: "T1"}), h.FindAll)
 
-	req := httptest.NewRequest(http.MethodGet, "/wards", nil)
+	req := httptest.NewRequest(http.MethodGet, "/departments", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestWardHandler_FindAll_NoCaller(t *testing.T) {
-	svc := &mockWardService{}
+func TestDepartmentHandler_FindAll_NoCaller(t *testing.T) {
+	svc := &mockDepartmentService{}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Get("/wards", h.FindAll)
+	h := NewDepartmentHandler(svc)
+	app.Get("/departments", h.FindAll)
 
-	req := httptest.NewRequest(http.MethodGet, "/wards", nil)
+	req := httptest.NewRequest(http.MethodGet, "/departments", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-func TestWardHandler_FindOne_Success(t *testing.T) {
-	svc := &mockWardService{
-		FindOneFn: func(_ context.Context, id string, _ *domain.Actor) (*domain.Ward, error) {
-			return &domain.Ward{ID: id}, nil
+func TestDepartmentHandler_FindOne_Success(t *testing.T) {
+	svc := &mockDepartmentService{
+		FindOneFn: func(_ context.Context, id string, _ *domain.Actor) (*domain.Department, error) {
+			return &domain.Department{ID: id}, nil
 		},
 	}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Get("/wards/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
+	h := NewDepartmentHandler(svc)
+	app.Get("/departments/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
 
-	req := httptest.NewRequest(http.MethodGet, "/wards/W1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/departments/D1", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestWardHandler_FindOne_NotFound(t *testing.T) {
-	svc := &mockWardService{
-		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Ward, error) {
+func TestDepartmentHandler_FindOne_NotFound(t *testing.T) {
+	svc := &mockDepartmentService{
+		FindOneFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Department, error) {
 			return nil, errors.New("not found")
 		},
 	}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Get("/wards/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
+	h := NewDepartmentHandler(svc)
+	app.Get("/departments/:id", injectCaller(&domain.Actor{ID: "S1", Role: "SUPER"}), h.FindOne)
 
-	req := httptest.NewRequest(http.MethodGet, "/wards/NOPE", nil)
+	req := httptest.NewRequest(http.MethodGet, "/departments/NOPE", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-func TestWardHandler_Remove_Success(t *testing.T) {
-	svc := &mockWardService{
-		RemoveFn: func(_ context.Context, id string, _ *domain.Actor) (string, error) {
-			return "deleted " + id, nil
+func TestDepartmentHandler_Remove_Success(t *testing.T) {
+	svc := &mockDepartmentService{
+		RemoveFn: func(_ context.Context, id string, _ *domain.Actor) (*domain.Department, error) {
+			return &domain.Department{ID: id}, nil
 		},
 	}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Delete("/wards/:id", h.Remove)
+	h := NewDepartmentHandler(svc)
+	app.Delete("/departments/:id", h.Remove)
 
-	req := httptest.NewRequest(http.MethodDelete, "/wards/W1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/departments/D1", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func TestWardHandler_Remove_Error(t *testing.T) {
-	svc := &mockWardService{
-		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (string, error) {
-			return "", errors.New("cannot delete")
+func TestDepartmentHandler_Remove_Error(t *testing.T) {
+	svc := &mockDepartmentService{
+		RemoveFn: func(_ context.Context, _ string, _ *domain.Actor) (*domain.Department, error) {
+			return nil, errors.New("cannot delete")
 		},
 	}
 	app := fiber.New()
-	h := NewWardHandler(svc)
-	app.Delete("/wards/:id", h.Remove)
+	h := NewDepartmentHandler(svc)
+	app.Delete("/departments/:id", h.Remove)
 
-	req := httptest.NewRequest(http.MethodDelete, "/wards/W1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/departments/D1", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -786,7 +814,7 @@ func TestUserHandler_Update_NonAdminCannotEscalateRole(t *testing.T) {
 	h := NewUserHandler(svc)
 	app.Put("/users/:id", injectCaller(&domain.Actor{ID: "U1", Role: "GUEST"}), h.Update)
 
-	body := `{"role":"SUPER","status":true,"wardId":"W9","display":"New Name"}`
+	body := `{"role":"SUPER","status":true,"tenantId":"T9","departmentIds":["D9"],"display":"New Name"}`
 	req := httptest.NewRequest(http.MethodPut, "/users/U1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
@@ -795,7 +823,8 @@ func TestUserHandler_Update_NonAdminCannotEscalateRole(t *testing.T) {
 
 	assert.Nil(t, received.Role)
 	assert.Nil(t, received.Status)
-	assert.Nil(t, received.WardID)
+	assert.Nil(t, received.TenantID)
+	assert.Nil(t, received.DepartmentIDs)
 	require.NotNil(t, received.Display, "non-privileged fields still apply")
 	assert.Equal(t, "New Name", *received.Display)
 }
@@ -854,4 +883,58 @@ func TestAuditHandler_FindAll_ServiceError(t *testing.T) {
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// ── Logout and access report ───────────────────────────────────────
+
+func TestAuthHandler_Logout(t *testing.T) {
+	var gotToken string
+	var gotCaller *domain.Actor
+	svc := &mockAuthService{LogoutFn: func(_ context.Context, token string, caller *domain.Actor) error {
+		gotToken, gotCaller = token, caller
+		return nil
+	}}
+	app := fiber.New(fiber.Config{StructValidator: validator.Validator{}})
+	app.Post("/logout", injectCaller(&domain.Actor{ID: "U1"}), NewAuthHandler(svc).Logout)
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", jsonBody(t, map[string]string{"token": "refresh-1"}))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "refresh-1", gotToken)
+	assert.Equal(t, "U1", gotCaller.ID)
+}
+
+func TestAuthHandler_Logout_MissingTokenOrCaller(t *testing.T) {
+	svc := &mockAuthService{}
+	app := fiber.New(fiber.Config{StructValidator: validator.Validator{}})
+	app.Post("/logout", NewAuthHandler(svc).Logout)
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", jsonBody(t, map[string]string{}))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	req = httptest.NewRequest(http.MethodPost, "/logout", jsonBody(t, map[string]string{"token": "t"}))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+func TestUserHandler_AccessReport(t *testing.T) {
+	svc := &mockUserService{AccessReportFn: func(_ context.Context, caller *domain.Actor) ([]domain.User, error) {
+		return []domain.User{{ID: "U1", Username: "alice", TenantID: caller.TenantID, Role: domain.RoleUser}}, nil
+	}}
+	app := fiber.New()
+	app.Get("/report", injectCaller(&domain.Actor{ID: "A1", Role: domain.RoleAdmin, TenantID: "T1"}), NewUserHandler(svc).AccessReport)
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/report", nil))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	assert.Contains(t, string(body), `"lastLoginAt"`)
+	assert.NotContains(t, string(body), "password")
 }

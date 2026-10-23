@@ -36,9 +36,12 @@ func (s *auditService) Record(
 		Action:   action,
 		Changes:  string(data),
 	}
+	meta := domain.RequestMetaFrom(ctx)
+	log.IP, log.UserAgent, log.RequestID = meta.IP, meta.UserAgent, meta.RequestID
 	if caller != nil {
 		log.ActorID = caller.ID
 		log.ActorName = caller.Name
+		log.TenantID = caller.TenantID
 	} else {
 		log.ActorName = "self"
 	}

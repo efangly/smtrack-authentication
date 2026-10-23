@@ -15,15 +15,16 @@ import (
 )
 
 type Router struct {
-	app             *fiber.App
-	cfg             *config.Config
-	tokens          ports.TokenIssuer
-	authHandler     *handlers.AuthHandler
-	userHandler     *handlers.UserHandler
-	hospitalHandler *handlers.HospitalHandler
-	wardHandler     *handlers.WardHandler
-	auditHandler    *handlers.AuditHandler
-	healthHandler   *handlers.HealthHandler
+	app               *fiber.App
+	cfg               *config.Config
+	tokens            ports.TokenIssuer
+	authHandler       *handlers.AuthHandler
+	userHandler       *handlers.UserHandler
+	tenantHandler     *handlers.TenantHandler
+	departmentHandler *handlers.DepartmentHandler
+	auditHandler      *handlers.AuditHandler
+	healthHandler     *handlers.HealthHandler
+	imageHandler      *handlers.ImageHandler
 }
 
 func NewRouter(
@@ -32,21 +33,23 @@ func NewRouter(
 	tokens ports.TokenIssuer,
 	authHandler *handlers.AuthHandler,
 	userHandler *handlers.UserHandler,
-	hospitalHandler *handlers.HospitalHandler,
-	wardHandler *handlers.WardHandler,
+	tenantHandler *handlers.TenantHandler,
+	departmentHandler *handlers.DepartmentHandler,
 	auditHandler *handlers.AuditHandler,
 	healthHandler *handlers.HealthHandler,
+	imageHandler *handlers.ImageHandler,
 ) *Router {
 	return &Router{
-		app:             app,
-		cfg:             cfg,
-		tokens:          tokens,
-		authHandler:     authHandler,
-		userHandler:     userHandler,
-		hospitalHandler: hospitalHandler,
-		wardHandler:     wardHandler,
-		auditHandler:    auditHandler,
-		healthHandler:   healthHandler,
+		app:               app,
+		cfg:               cfg,
+		tokens:            tokens,
+		authHandler:       authHandler,
+		userHandler:       userHandler,
+		tenantHandler:     tenantHandler,
+		departmentHandler: departmentHandler,
+		auditHandler:      auditHandler,
+		healthHandler:     healthHandler,
+		imageHandler:      imageHandler,
 	}
 }
 
@@ -80,8 +83,14 @@ func (r *Router) Setup() {
 	// Reset password (requires JWT). The path parameter is a username, not an id.
 	auth.Patch("/reset/:username", middleware.JWTAuth(r.tokens), r.authHandler.ResetPassword)
 
+	// Logout (requires the access token; the body carries the refresh token to revoke).
+	auth.Post("/logout", middleware.JWTAuth(r.tokens), r.authHandler.Logout)
+
 	// Health check
 	auth.Get("/health", r.healthHandler.Check)
+
+	// Stored pictures (public, like the image URLs they replace)
+	auth.Get("/image/:path/:name", r.imageHandler.Get)
 
 	// JWT-protected middleware
 	jwtAuth := middleware.JWTAuth(r.tokens)
@@ -104,42 +113,66 @@ func (r *Router) Setup() {
 		middleware.RolesGuard(domain.RoleSuper, domain.RoleService, domain.RoleAdmin, domain.RoleLegacyAdmin),
 		r.userHandler.Remove,
 	)
+	userGroup.Post("/:id/restore",
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService, domain.RoleAdmin, domain.RoleLegacyAdmin),
+		r.userHandler.Restore,
+	)
 
-	// Hospital routes
-	hospitalGroup := auth.Group("/hospital", jwtAuth)
-	hospitalGroup.Post("/",
-		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
-		r.hospitalHandler.Create,
+	// Access review: who holds which role where, and when they last signed in.
+	auth.Get("/report/access", jwtAuth,
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService, domain.RoleAdmin, domain.RoleLegacyAdmin),
+		r.userHandler.AccessReport,
 	)
-	hospitalGroup.Get("/", r.hospitalHandler.FindAll)
-	hospitalGroup.Get("/:id", r.hospitalHandler.FindOne)
-	hospitalGroup.Put("/:id",
+
+	// Tenant routes
+	tenantGroup := auth.Group("/tenant", jwtAuth)
+	tenantGroup.Post("/",
 		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
-		r.hospitalHandler.Update,
+		r.tenantHandler.Create,
 	)
-	hospitalGroup.Delete("/:id",
+	tenantGroup.Get("/", r.tenantHandler.FindAll)
+	tenantGroup.Get("/:id", r.tenantHandler.FindOne)
+	tenantGroup.Put("/:id",
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
+		r.tenantHandler.Update,
+	)
+	// A tenant's own admin may rename its labels; the service confirms the
+	// tenant is the caller's.
+	tenantGroup.Put("/:id/labels",
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService, domain.RoleAdmin, domain.RoleLegacyAdmin),
+		r.tenantHandler.UpdateLabels,
+	)
+	tenantGroup.Delete("/:id",
 		middleware.RolesGuard(domain.RoleSuper),
-		r.hospitalHandler.Remove,
+		r.tenantHandler.Remove,
+	)
+	tenantGroup.Post("/:id/restore",
+		middleware.RolesGuard(domain.RoleSuper),
+		r.tenantHandler.Restore,
 	)
 
-	// Ward routes
-	wardGroup := auth.Group("/ward", jwtAuth)
-	wardGroup.Post("/",
+	// Department routes
+	departmentGroup := auth.Group("/department", jwtAuth)
+	departmentGroup.Post("/",
 		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
-		r.wardHandler.Create,
+		r.departmentHandler.Create,
 	)
-	wardGroup.Get("/", r.wardHandler.FindAll)
-	wardGroup.Get("/:id", r.wardHandler.FindOne)
-	// Update and Remove carry the same guard as Create: without it any
-	// authenticated caller — including a self-registered GUEST — could
-	// rename or delete any ward.
-	wardGroup.Put("/:id",
+	departmentGroup.Get("/", r.departmentHandler.FindAll)
+	departmentGroup.Get("/:id", r.departmentHandler.FindOne)
+	// Every mutating route carries a guard: without one any authenticated
+	// caller — including a self-registered GUEST — could rename or delete any
+	// department.
+	departmentGroup.Put("/:id",
 		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
-		r.wardHandler.Update,
+		r.departmentHandler.Update,
 	)
-	wardGroup.Delete("/:id",
+	departmentGroup.Delete("/:id",
 		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
-		r.wardHandler.Remove,
+		r.departmentHandler.Remove,
+	)
+	departmentGroup.Post("/:id/restore",
+		middleware.RolesGuard(domain.RoleSuper, domain.RoleService),
+		r.departmentHandler.Restore,
 	)
 
 	// Audit log routes (read-only). Logs are not tenant-scoped, so only the

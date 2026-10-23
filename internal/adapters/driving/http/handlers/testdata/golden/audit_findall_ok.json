@@ -12,7 +12,11 @@
         "actorId": "UID-0",
         "actorName": "Admin",
         "changes": "{\"display\":\"John Doe\"}",
-        "createAt": "2024-01-02T03:04:05Z"
+        "tenantId": "TID-1",
+        "ip": "",
+        "userAgent": "",
+        "requestId": "",
+        "createdAt": "2024-01-02T03:04:05Z"
       }
     ]
   }

@@ -47,12 +47,9 @@ var layerRules = map[string][]string{
 var importAllowlist = map[string]string{}
 
 // tagAllowlist maps a domain file to the phase that strips its gorm/json tags.
-var tagAllowlist = map[string]string{
-	"audit.go":    "Phase 6",
-	"hospital.go": "Phase 6",
-	"user.go":     "Phase 6",
-	"ward.go":     "Phase 6",
-}
+// Phase 6 removed the last of them; the list stays so a future exception has to
+// be argued for here.
+var tagAllowlist = map[string]string{}
 
 type pkgImports struct {
 	path    string

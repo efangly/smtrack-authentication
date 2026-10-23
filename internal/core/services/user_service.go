@@ -14,17 +14,34 @@ import (
 )
 
 type userService struct {
-	repo     ports.UserRepository
-	wardRepo ports.WardRepository
-	cache    ports.CachePort
-	upload   ports.FileUploadPort
-	hasher   ports.PasswordHasher
-	audit    ports.AuditService
+	repo           ports.UserRepository
+	tenantRepo     ports.TenantRepository
+	departmentRepo ports.DepartmentRepository
+	cache          ports.CachePort
+	upload         ports.FileUploadPort
+	hasher         ports.PasswordHasher
+	audit          ports.AuditService
 }
 
 // NewUserService creates a new user service
-func NewUserService(repo ports.UserRepository, wardRepo ports.WardRepository, cache ports.CachePort, upload ports.FileUploadPort, hasher ports.PasswordHasher, audit ports.AuditService) ports.UserService {
-	return &userService{repo: repo, wardRepo: wardRepo, cache: cache, upload: upload, hasher: hasher, audit: audit}
+func NewUserService(
+	repo ports.UserRepository,
+	tenantRepo ports.TenantRepository,
+	departmentRepo ports.DepartmentRepository,
+	cache ports.CachePort,
+	upload ports.FileUploadPort,
+	hasher ports.PasswordHasher,
+	audit ports.AuditService,
+) ports.UserService {
+	return &userService{
+		repo:           repo,
+		tenantRepo:     tenantRepo,
+		departmentRepo: departmentRepo,
+		cache:          cache,
+		upload:         upload,
+		hasher:         hasher,
+		audit:          audit,
+	}
 }
 
 func (s *userService) Create(ctx context.Context, user *domain.User, caller *domain.Actor) (*domain.User, error) {
@@ -35,24 +52,34 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *dom
 	} else if !user.Role.IsValid() {
 		return nil, fmt.Errorf("invalid role: %s", user.Role)
 	}
-	// Public registration (no caller) can only ever produce a GUEST; an
-	// authenticated caller is held to its role ceiling.
+	// Public registration (no caller) can only ever produce a GUEST without
+	// departments; an authenticated caller is held to its role ceiling.
 	if caller == nil {
 		if user.Role != domain.RoleGuest {
 			return nil, fmt.Errorf("you cannot assign role %s", user.Role)
 		}
-	} else {
-		if !caller.CanAssign(user.Role) {
-			return nil, fmt.Errorf("you cannot assign role %s", user.Role)
+		if len(user.DepartmentIDs) > 0 {
+			return nil, errors.New("you cannot assign departments")
 		}
-		if err := s.checkWardInScope(ctx, caller, user.WardID); err != nil {
-			return nil, err
-		}
+	} else if !caller.CanAssign(user.Role) {
+		return nil, fmt.Errorf("you cannot assign role %s", user.Role)
 	}
+	if err := s.checkTenantInScope(ctx, caller, user.TenantID); err != nil {
+		return nil, err
+	}
+	if err := s.checkDepartments(ctx, user.TenantID, user.DepartmentIDs); err != nil {
+		return nil, err
+	}
+
 	if user.ID == "" {
 		user.ID = uuid.New().String()
 	}
 	user.Username = strings.ToLower(user.Username)
+	if taken, err := s.repo.UsernameTaken(ctx, user.Username); err != nil {
+		return nil, err
+	} else if taken {
+		return nil, errors.New("username already exists")
+	}
 
 	// Every path into Create carries a plain-text password — both the public
 	// register flow (authService.Register passes it straight through) and the
@@ -75,12 +102,15 @@ func (s *userService) Create(ctx context.Context, user *domain.User, caller *dom
 
 	// Clear cache
 	s.cache.Del(ctx, "user")
-	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionCreate, result.ID, caller, result.WithoutSecrets())
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionCreate, result.ID, caller, userSnapshot(result))
 	return result, nil
 }
 
 func (s *userService) FindAll(ctx context.Context, caller *domain.Actor) ([]domain.User, error) {
-	filter, key := buildUserFilter(caller)
+	filter, key, ok := buildUserFilter(caller)
+	if !ok {
+		return []domain.User{}, nil
+	}
 
 	var cached []domain.User
 	if hit, err := s.cache.Get(ctx, key, &cached); err == nil && hit {
@@ -99,6 +129,33 @@ func (s *userService) FindAll(ctx context.Context, caller *domain.Actor) ([]doma
 	return users, nil
 }
 
+func (s *userService) RecordLogin(ctx context.Context, id string) error {
+	if err := s.repo.RecordLogin(ctx, id, time.Now()); err != nil {
+		return err
+	}
+	// Listings embed lastLoginAt; let them refresh rather than serve a stale value for long.
+	s.cache.Del(ctx, fmt.Sprintf("user:%s", id))
+	return nil
+}
+
+func (s *userService) AccessReport(ctx context.Context, caller *domain.Actor) ([]domain.User, error) {
+	if caller == nil || !caller.IsAdminTier() {
+		return nil, errors.New("unauthorized")
+	}
+	filter, _, ok := buildUserFilter(caller)
+	if !ok {
+		return []domain.User{}, nil
+	}
+	// Straight from the database: a review must not see a cached copy.
+	users, err := s.repo.FindAll(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionAccessReport, caller.ID, caller,
+		map[string]any{"users": len(users)})
+	return domain.UsersWithoutSecrets(users), nil
+}
+
 func (s *userService) FindOne(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
 	if caller == nil {
 		return nil, errors.New("unauthorized")
@@ -111,7 +168,7 @@ func (s *userService) FindOne(ctx context.Context, id string, caller *domain.Act
 	if err != nil {
 		return nil, err
 	}
-	if caller.ID != id && !canManageUsersIn(caller, userHosID(user)) {
+	if caller.ID != id && !canAdminTenant(caller, user.TenantID) {
 		return nil, errors.New("user not found")
 	}
 	return user, nil
@@ -152,15 +209,39 @@ func (s *userService) FindByUsername(ctx context.Context, username string) (*dom
 	return user, nil
 }
 
+func (s *userService) UsernameTaken(ctx context.Context, username string) (bool, error) {
+	return s.repo.UsernameTaken(ctx, username)
+}
+
 func (s *userService) Update(ctx context.Context, id string, patch domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error) {
 	target, err := s.authorizeChange(ctx, id, caller)
 	if err != nil {
 		return nil, err
 	}
 
-	if patch.WardID != nil && *patch.WardID != target.WardID {
-		if err := s.checkWardInScope(ctx, caller, *patch.WardID); err != nil {
+	tenantID := target.TenantID
+	if patch.TenantID != nil && *patch.TenantID != target.TenantID {
+		if err := s.checkTenantInScope(ctx, caller, *patch.TenantID); err != nil {
 			return nil, err
+		}
+		// Department links belong to one tenant, so moving a user means saying
+		// which departments it has in the new one.
+		if patch.DepartmentIDs == nil {
+			return nil, errors.New("departmentIds is required when changing tenant")
+		}
+		tenantID = *patch.TenantID
+	}
+	if patch.DepartmentIDs != nil {
+		if err := s.checkDepartments(ctx, tenantID, *patch.DepartmentIDs); err != nil {
+			return nil, err
+		}
+	}
+
+	if patch.Username != nil && *patch.Username != target.Username {
+		if taken, err := s.repo.UsernameTaken(ctx, *patch.Username); err != nil {
+			return nil, err
+		} else if taken {
+			return nil, errors.New("username already exists")
 		}
 	}
 
@@ -211,9 +292,7 @@ func (s *userService) Update(ctx context.Context, id string, patch domain.UserPa
 		return nil, err
 	}
 
-	// Clear caches
-	s.cache.Del(ctx, "user")
-	s.cache.Del(ctx, fmt.Sprintf("user:%s", id))
+	s.invalidate(ctx, id, target.Username)
 	if updatedUser != nil && updatedUser.Username != "" {
 		s.cache.Del(ctx, fmt.Sprintf("user:%s", updatedUser.Username))
 	}
@@ -222,34 +301,63 @@ func (s *userService) Update(ctx context.Context, id string, patch domain.UserPa
 	return updatedUser, nil
 }
 
+// Remove soft-deletes a user. Its image is kept so a restore brings the whole
+// record back; it is deleted when the user is purged.
 func (s *userService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
 	if _, err := s.authorizeChange(ctx, id, caller); err != nil {
 		return nil, err
 	}
 
-	user, err := s.repo.Delete(ctx, id)
+	user, err := s.repo.Delete(ctx, id, caller.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Delete associated image
-	if user.Pic != nil && *user.Pic != "" {
-		parts := strings.Split(*user.Pic, "/")
-		fileName := parts[len(parts)-1]
-		if err := s.upload.Delete("user", fileName); err != nil {
-			logger.Warn("Error deleting user image", "error", err, "file", fileName)
-		}
+	s.invalidate(ctx, id, user.Username)
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionDelete, id, caller, userSnapshot(user))
+	return user, nil
+}
+
+// Restore brings a soft-deleted user back under the same scope and role
+// ceiling that let the caller delete it.
+func (s *userService) Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
+	if caller == nil {
+		return nil, errors.New("unauthorized")
+	}
+	target, err := s.repo.FindAnyByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if target == nil || target.DeletedAt == nil || !canAdminTenant(caller, target.TenantID) {
+		return nil, errors.New("user not found")
+	}
+	if !caller.CanAssign(target.Role) {
+		return nil, errors.New("you do not have permission to modify this user")
+	}
+	tenant, err := s.tenantRepo.FindByID(ctx, target.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if tenant == nil {
+		return nil, errors.New("tenant not found")
 	}
 
-	// Clear caches
+	user, err := s.repo.Restore(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	s.invalidate(ctx, id, user.Username)
+	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionRestore, id, caller, userSnapshot(user))
+	return user, nil
+}
+
+func (s *userService) invalidate(ctx context.Context, id, username string) {
 	s.cache.Del(ctx, "user")
 	s.cache.Del(ctx, fmt.Sprintf("user:%s", id))
-	if user.Username != "" {
-		s.cache.Del(ctx, fmt.Sprintf("user:%s", user.Username))
+	if username != "" {
+		s.cache.Del(ctx, fmt.Sprintf("user:%s", username))
 	}
-
-	s.audit.Record(ctx, domain.AuditEntityUser, domain.AuditActionDelete, id, caller, user.WithoutSecrets())
-	return user, nil
 }
 
 // authorizeChange loads the user about to be updated or removed and checks
@@ -271,7 +379,7 @@ func (s *userService) authorizeChange(ctx context.Context, id string, caller *do
 		return nil, errors.New("user not found")
 	}
 	if caller.ID != id {
-		if !canManageUsersIn(caller, userHosID(target)) {
+		if !canAdminTenant(caller, target.TenantID) {
 			return nil, errors.New("user not found")
 		}
 		if !caller.CanAssign(target.Role) {
@@ -281,40 +389,76 @@ func (s *userService) authorizeChange(ctx context.Context, id string, caller *do
 	return target, nil
 }
 
-// checkWardInScope rejects placing a user into a ward outside the caller's
-// tenant scope. SUPER and SERVICE may use any ward; the database still rejects
-// one that does not exist.
-func (s *userService) checkWardInScope(ctx context.Context, caller *domain.Actor, wardID string) error {
-	switch caller.Role {
-	case domain.RoleSuper, domain.RoleService:
-		return nil
-	}
-	ward, err := s.wardRepo.FindByID(ctx, wardID)
+// checkTenantInScope rejects placing a user into a tenant that does not exist
+// or is outside the caller's scope. A nil caller is public registration, which
+// may not join a hidden tenant. A tenant that cannot be used reads as not found.
+func (s *userService) checkTenantInScope(ctx context.Context, caller *domain.Actor, tenantID string) error {
+	tenant, err := s.tenantRepo.FindByID(ctx, tenantID)
 	if err != nil {
 		return err
 	}
-	if ward == nil || !canManageUsersIn(caller, ward.HosID) {
-		return errors.New("ward not found")
+	if tenant == nil {
+		return errors.New("tenant not found")
+	}
+	if caller == nil {
+		if tenant.Hidden {
+			return errors.New("tenant not found")
+		}
+		return nil
+	}
+	if !canAdminTenant(caller, tenant.ID) {
+		return errors.New("tenant not found")
 	}
 	return nil
 }
 
-// buildUserFilter is the user listing each role may see, and its cache key.
-func buildUserFilter(caller *domain.Actor) (ports.UserFilter, string) {
-	switch caller.Role {
-	case domain.RoleAdmin:
-		return ports.UserFilter{
-			HosID:         caller.HosID,
-			ExcludeHosIDs: []string{developmentHosID},
-			ExcludeRoles:  []domain.Role{domain.RoleService},
-		}, fmt.Sprintf("user:%s", caller.HosID)
-	case domain.RoleLegacyAdmin:
-		return ports.UserFilter{
-			HosID:         caller.HosID,
-			ExcludeHosIDs: []string{developmentHosID},
-		}, fmt.Sprintf("user:%s", caller.HosID)
-	case domain.RoleService:
-		return ports.UserFilter{ExcludeHosIDs: []string{developmentHosID}}, "user:" + developmentHosID
+// checkDepartments requires every department to exist and belong to tenantID.
+func (s *userService) checkDepartments(ctx context.Context, tenantID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
 	}
-	return ports.UserFilter{}, "user"
+	found, err := s.departmentRepo.FindByIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]domain.Department, len(found))
+	for _, d := range found {
+		byID[d.ID] = d
+	}
+	for _, id := range ids {
+		if d, ok := byID[id]; !ok || d.TenantID != tenantID {
+			return errors.New("department not found")
+		}
+	}
+	return nil
+}
+
+// buildUserFilter is the user listing each role may see, and its cache key. ok
+// is false when the caller's scope is empty (a tenant-scoped role whose token
+// names no tenant), which must list nothing rather than everything.
+func buildUserFilter(caller *domain.Actor) (filter ports.UserFilter, key string, ok bool) {
+	switch caller.Role {
+	case domain.RoleSuper:
+		return ports.UserFilter{}, "user", true
+	case domain.RoleService:
+		return ports.UserFilter{ExcludeHiddenTenants: true}, "user:service", true
+	case domain.RoleAdmin:
+		if caller.TenantID == "" {
+			return filter, "", false
+		}
+		return ports.UserFilter{
+			TenantID:             caller.TenantID,
+			ExcludeHiddenTenants: true,
+			ExcludeRoles:         []domain.Role{domain.RoleService},
+		}, "user:tenant:" + caller.TenantID, true
+	case domain.RoleLegacyAdmin:
+		if caller.TenantID == "" {
+			return filter, "", false
+		}
+		return ports.UserFilter{TenantID: caller.TenantID, ExcludeHiddenTenants: true}, "user:tenant:" + caller.TenantID + ":legacy", true
+	}
+	if caller.TenantID == "" {
+		return filter, "", false
+	}
+	return ports.UserFilter{TenantID: caller.TenantID}, "user:tenant:" + caller.TenantID + ":member", true
 }

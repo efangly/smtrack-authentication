@@ -89,6 +89,12 @@ func doJSON(t *testing.T, method, path string, body any, token string) (*http.Re
 // for other tests.
 func doJSONUnthrottled(t *testing.T, method, path string, body any, token string) (*http.Response, envelope) {
 	t.Helper()
+	return doJSONWith(t, method, path, body, token, nil)
+}
+
+// doJSONWith is doJSONUnthrottled with extra request headers.
+func doJSONWith(t *testing.T, method, path string, body any, token string, headers map[string]string) (*http.Response, envelope) {
+	t.Helper()
 
 	var reader io.Reader
 	if body != nil {
@@ -108,6 +114,9 @@ func doJSONUnthrottled(t *testing.T, method, path string, body any, token string
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
@@ -138,9 +147,11 @@ func e2eName(prefix string) string {
 }
 
 type authResult struct {
-	Token        string `json:"token"`
-	RefreshToken string `json:"refreshToken"`
-	ID           string `json:"id"`
+	Token         string   `json:"token"`
+	RefreshToken  string   `json:"refreshToken"`
+	ID            string   `json:"id"`
+	TenantID      string   `json:"tenantId"`
+	DepartmentIDs []string `json:"departmentIds"`
 }
 
 // loginAs logs in with username/password and returns the access + refresh
@@ -180,56 +191,54 @@ func adminToken(t *testing.T) string {
 	return adminTokenCached
 }
 
-// createHospital creates a throwaway hospital as the given (admin) caller and
-// registers cleanup. Returns the new hospital's id.
-func createHospital(t *testing.T, callerToken string) string {
+// idOf decodes the id out of a create/restore response.
+func idOf(t *testing.T, env envelope) string {
 	t.Helper()
-	name := e2eName("hospital")
-	resp, env := doJSON(t, http.MethodPost, "/hospital", map[string]any{
-		"hosName": name,
-	}, callerToken)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create hospital: status %d, message %q", resp.StatusCode, env.Message)
-	}
 	var created struct {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(env.Data, &created); err != nil {
-		t.Fatalf("decode created hospital: %v", err)
+		t.Fatalf("decode id: %v", err)
 	}
-
-	t.Cleanup(func() {
-		doJSON(t, http.MethodDelete, "/hospital/"+created.ID, nil, callerToken)
-	})
 	return created.ID
 }
 
-// createWard creates a throwaway ward under hosID as the given (admin)
-// caller and registers cleanup. Returns the new ward's id.
-func createWard(t *testing.T, callerToken, hosID string) string {
+// createTenant creates a throwaway tenant of the given kind as the given
+// (SUPER or SERVICE) caller and registers cleanup. Cleanups run last-in
+// first-out, so a tenant is removed after the users and departments created
+// under it, which a soft delete of a non-empty tenant requires.
+func createTenant(t *testing.T, callerToken, kind string) string {
 	t.Helper()
-	name := e2eName("ward")
-	resp, env := doJSON(t, http.MethodPost, "/ward", map[string]any{
-		"wardName": name,
-		"hosId":    hosID,
+	return createTenantWith(t, callerToken, map[string]any{"name": e2eName("tenant"), "kind": kind})
+}
+
+func createTenantWith(t *testing.T, callerToken string, body map[string]any) string {
+	t.Helper()
+	resp, env := doJSON(t, http.MethodPost, "/tenant", body, callerToken)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create tenant: status %d, message %q", resp.StatusCode, env.Message)
+	}
+	id := idOf(t, env)
+	t.Cleanup(func() { doJSON(t, http.MethodDelete, "/tenant/"+id, nil, callerToken) })
+	return id
+}
+
+// createDepartment creates a throwaway department under tenantID.
+func createDepartment(t *testing.T, callerToken, tenantID string) string {
+	t.Helper()
+	resp, env := doJSON(t, http.MethodPost, "/department", map[string]any{
+		"name":     e2eName("dept"),
+		"tenantId": tenantID,
 	}, callerToken)
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create ward: status %d, message %q", resp.StatusCode, env.Message)
+		t.Fatalf("create department: status %d, message %q", resp.StatusCode, env.Message)
 	}
-	var created struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(env.Data, &created); err != nil {
-		t.Fatalf("decode created ward: %v", err)
-	}
-
-	t.Cleanup(func() {
-		doJSON(t, http.MethodDelete, "/ward/"+created.ID, nil, callerToken)
-	})
-	return created.ID
+	id := idOf(t, env)
+	t.Cleanup(func() { doJSON(t, http.MethodDelete, "/department/"+id, nil, callerToken) })
+	return id
 }
 
-// registeredUser is a throwaway GUEST user's id, username, and the plaintext
+// registeredUser is a throwaway user's id, username, and the plaintext
 // password used to create it (needed later for login/reset-password
 // scenarios).
 type registeredUser struct {
@@ -238,34 +247,96 @@ type registeredUser struct {
 	Password string
 }
 
-// createUser creates a throwaway GUEST user via the authenticated admin
-// route (POST /auth/user), which carries no rate limit — unlike the public
-// /auth/register route exercised directly in auth_register_test.go. Prefer
-// this for generic fixture setup so the shared /login+/register rate-limit
-// budget (see publicRouteGate) is spent on requests tests actually care
-// about, not on incidental setup.
-func createUser(t *testing.T, callerToken, wardID string) registeredUser {
+const testPassword = "TestPass123" // within the 4-20 character rule
+
+// createUser creates a throwaway GUEST user in tenantID, linked to
+// departmentIDs, via the authenticated admin route (POST /auth/user), which
+// carries no rate limit — unlike the public /auth/register route exercised
+// directly in auth_register_test.go. Prefer this for generic fixture setup so
+// the shared /login+/register rate-limit budget (see publicRouteGate) is
+// spent on requests tests actually care about.
+func createUser(t *testing.T, callerToken, tenantID string, departmentIDs ...string) registeredUser {
+	t.Helper()
+	return createUserWithRole(t, callerToken, tenantID, "", departmentIDs...)
+}
+
+// createAdmin creates a throwaway ADMIN user. The caller must be SUPER or SERVICE.
+func createAdmin(t *testing.T, callerToken, tenantID string, departmentIDs ...string) registeredUser {
+	t.Helper()
+	return createUserWithRole(t, callerToken, tenantID, "ADMIN", departmentIDs...)
+}
+
+func createUserWithRole(t *testing.T, callerToken, tenantID, role string, departmentIDs ...string) registeredUser {
 	t.Helper()
 	username := e2eName("user")
-	password := "TestPass123"
-
-	resp, env := doJSON(t, http.MethodPost, "/user", map[string]any{
-		"wardId":   wardID,
+	body := map[string]any{
+		"tenantId": tenantID,
 		"username": username,
-		"password": password,
-	}, callerToken)
+		"password": testPassword,
+	}
+	if role != "" {
+		body["role"] = role
+	}
+	if len(departmentIDs) > 0 {
+		body["departmentIds"] = departmentIDs
+	}
+	resp, env := doJSON(t, http.MethodPost, "/user", body, callerToken)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create user: status %d, message %q", resp.StatusCode, env.Message)
 	}
-	var created struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(env.Data, &created); err != nil {
-		t.Fatalf("decode created user: %v", err)
-	}
+	id := idOf(t, env)
+	t.Cleanup(func() { doJSON(t, http.MethodDelete, "/user/"+id, nil, callerToken) })
+	return registeredUser{ID: id, Username: username, Password: testPassword}
+}
 
-	t.Cleanup(func() {
-		doJSON(t, http.MethodDelete, "/user/"+created.ID, nil, callerToken)
-	})
-	return registeredUser{ID: created.ID, Username: username, Password: password}
+// userView is the part of a user response the tests inspect.
+type userView struct {
+	ID            string   `json:"id"`
+	TenantID      string   `json:"tenantId"`
+	DepartmentIDs []string `json:"departmentIds"`
+	Role          string   `json:"role"`
+	Status        bool     `json:"status"`
+	LastLoginAt   *string  `json:"lastLoginAt"`
+	Tenant        *struct {
+		Name string `json:"name"`
+	} `json:"tenant"`
+	Departments []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"departments"`
+}
+
+func getUser(t *testing.T, callerToken, id string) userView {
+	t.Helper()
+	resp, env := doJSON(t, http.MethodGet, "/user/"+id, nil, callerToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get user %s: status %d, message %q", id, resp.StatusCode, env.Message)
+	}
+	var u userView
+	if err := json.Unmarshal(env.Data, &u); err != nil {
+		t.Fatalf("decode user: %v", err)
+	}
+	return u
+}
+
+func listUsers(t *testing.T, callerToken string) []userView {
+	t.Helper()
+	resp, env := doJSON(t, http.MethodGet, "/user", nil, callerToken)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list users: status %d, message %q", resp.StatusCode, env.Message)
+	}
+	var users []userView
+	if err := json.Unmarshal(env.Data, &users); err != nil {
+		t.Fatalf("decode users: %v", err)
+	}
+	return users
+}
+
+func containsID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }

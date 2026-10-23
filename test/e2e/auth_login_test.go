@@ -11,13 +11,18 @@ import (
 // TestLogin_Success verifies the happy path still issues both tokens.
 func TestLogin_Success(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 
 	result := loginAs(t, user.Username, user.Password)
 	if result.Token == "" || result.RefreshToken == "" {
 		t.Fatalf("expected both tokens, got %+v", result)
+	}
+	if result.TenantID != tenantID {
+		t.Errorf("login tenantId = %q, want %q", result.TenantID, tenantID)
+	}
+	if got := getUser(t, admin, user.ID); got.LastLoginAt == nil {
+		t.Error("lastLoginAt was not stamped by a successful login")
 	}
 }
 
@@ -29,13 +34,12 @@ func TestLogin_Success(t *testing.T) {
 // flaky).
 func TestLogin_WrongPasswordAndUnknownUser_SameGenericMessage(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 
 	respWrongPass, envWrongPass := doJSON(t, http.MethodPost, "/login", map[string]string{
 		"username": user.Username,
-		"password": "wrong-password-1234", // must stay <=20 chars (LoginRequest validate:"max=20")
+		"password": "wrong-password-1234", // must stay within the 4-20 character rule
 	}, "")
 	respUnknownUser, envUnknownUser := doJSON(t, http.MethodPost, "/login", map[string]string{
 		"username": e2eName("nonexistent"),
@@ -59,9 +63,8 @@ func TestLogin_WrongPasswordAndUnknownUser_SameGenericMessage(t *testing.T) {
 // wrong password so its existence is not revealed.
 func TestLogin_DisabledAccount_SameGenericMessage(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 
 	if resp, env := doJSON(t, http.MethodPut, "/user/"+user.ID, map[string]any{
 		"status": false,

@@ -14,8 +14,7 @@ const storedHash = "hashed:secret"
 
 func userWithHash(id string) domain.User {
 	return domain.User{
-		ID: id, Username: "u-" + id, Role: domain.RoleUser, Password: storedHash,
-		Ward: &domain.Ward{ID: "W1", HosID: "H1", Users: []domain.User{{ID: "N1", Password: storedHash}}},
+		ID: id, Username: "u-" + id, Role: domain.RoleUser, Password: storedHash, TenantID: "T1",
 	}
 }
 
@@ -28,16 +27,14 @@ func assertNoHash(t *testing.T, v any) {
 		users = []domain.User{x}
 	case []domain.User:
 		users = x
+	case map[string]any:
+		assert.NotContains(t, x, "password")
+		return
 	default:
 		t.Fatalf("unexpected cached type %T", v)
 	}
 	for _, u := range users {
 		assert.Empty(t, u.Password, "user %s cached with its password hash", u.ID)
-		if u.Ward != nil {
-			for _, n := range u.Ward.Users {
-				assert.Empty(t, n.Password, "nested user %s cached with its password hash", n.ID)
-			}
-		}
 	}
 }
 
@@ -91,55 +88,67 @@ func TestUser_WithoutSecrets_DoesNotMutateOriginal(t *testing.T) {
 	clean := u.WithoutSecrets()
 
 	assert.Empty(t, clean.Password)
-	assert.Empty(t, clean.Ward.Users[0].Password)
 	assert.Equal(t, storedHash, u.Password)
-	assert.Equal(t, storedHash, u.Ward.Users[0].Password, "nested slice must be copied, not cleared in place")
 }
 
 func TestUserService_AuditSnapshotsCarryNoPassword(t *testing.T) {
 	var snapshots []any
-	audit := newMockAuditService()
-	audit.RecordFn = func(_ context.Context, _ domain.AuditEntity, _ domain.AuditAction, _ string, _ *domain.Actor, changes any) {
+	f := newUserFixture(&mockUserRepo{
+		CreateFn:   echoUser,
+		FindByIDFn: func(_ context.Context, id string) (*domain.User, error) { u := userWithHash(id); return &u, nil },
+		DeleteFn:   func(_ context.Context, id, _ string) (*domain.User, error) { u := userWithHash(id); return &u, nil },
+		FindAnyByIDFn: func(_ context.Context, id string) (*domain.User, error) {
+			u := deletedUserValue(id)
+			return &u, nil
+		},
+		RestoreFn: func(_ context.Context, id string) (*domain.User, error) { u := userWithHash(id); return &u, nil },
+	})
+	f.audit.RecordFn = func(_ context.Context, _ domain.AuditEntity, _ domain.AuditAction, _ string, _ *domain.Actor, changes any) {
 		snapshots = append(snapshots, changes)
 	}
-	repo := &mockUserRepo{
-		CreateFn:   func(_ context.Context, u *domain.User) (*domain.User, error) { return u, nil },
-		FindByIDFn: func(_ context.Context, id string) (*domain.User, error) { u := userWithHash(id); return &u, nil },
-		DeleteFn:   func(_ context.Context, id string) (*domain.User, error) { u := userWithHash(id); return &u, nil },
-	}
-	svc := NewUserService(repo, &mockWardRepo{}, newMockCache(), newMockUpload(), &fakeHasher{}, audit)
 
-	_, err := svc.Create(context.Background(), &domain.User{Username: "u", Password: "plain", Role: domain.RoleUser}, superCaller)
+	_, err := f.svc.Create(context.Background(), &domain.User{Username: "u", Password: "plain-password-123", Role: domain.RoleUser, TenantID: "T1"}, superCaller)
 	require.NoError(t, err)
-	_, err = svc.Remove(context.Background(), "U1", superCaller)
+	_, err = f.svc.Remove(context.Background(), "U1", superCaller)
+	require.NoError(t, err)
+	_, err = f.svc.Restore(context.Background(), "U1", superCaller)
 	require.NoError(t, err)
 
-	require.Len(t, snapshots, 2)
+	require.Len(t, snapshots, 3)
 	for _, s := range snapshots {
 		assertNoHash(t, s)
 	}
 }
 
-// ADR 0002: anything that changes a ward or hospital also clears users,
-// because user listings embed their ward and hospital.
-func TestCascadeInvalidation(t *testing.T) {
-	wardRepo := &mockWardRepo{
-		UpdateFn: func(_ context.Context, id string, _ domain.WardPatch) (*domain.Ward, error) {
-			return &domain.Ward{ID: id}, nil
-		},
-	}
-	wardSvc, cache, _ := newTestWardService(wardRepo)
-	_, err := wardSvc.Update(context.Background(), "W1", domain.WardPatch{WardName: ptr("A")}, superCaller)
-	require.NoError(t, err)
-	assert.Subset(t, cache.deleted, []string{"ward", "hospital", "user"})
+func deletedUserValue(id string) domain.User {
+	u := userWithHash(id)
+	now := u.CreatedAt
+	u.DeletedAt = &now
+	return u
+}
 
-	hosRepo := &mockHospitalRepo{
-		UpdateFn: func(_ context.Context, id string, _ domain.HospitalPatch) (*domain.Hospital, error) {
-			return &domain.Hospital{ID: id}, nil
+// ADR 0002: anything that changes a tenant or department also clears users,
+// because user listings embed them.
+func TestCascadeInvalidation(t *testing.T) {
+	deptSvc, cache, _ := newTestDepartmentService(&mockDepartmentRepo{
+		FindByIDFn: func(_ context.Context, id string) (*domain.Department, error) {
+			return &domain.Department{ID: id, TenantID: "T1"}, nil
 		},
-	}
-	hosSvc, cache, _, _ := newTestHospitalService(hosRepo)
-	_, err = hosSvc.Update(context.Background(), "H1", domain.HospitalPatch{HosName: ptr("H")}, nil, superCaller)
+		UpdateFn: func(_ context.Context, id string, _ domain.DepartmentPatch) (*domain.Department, error) {
+			return &domain.Department{ID: id}, nil
+		},
+	})
+	_, err := deptSvc.Update(context.Background(), "D1", domain.DepartmentPatch{Name: ptr("A")}, superCaller)
 	require.NoError(t, err)
-	assert.Subset(t, cache.deleted, []string{"ward", "hospital", "user"})
+	assert.Subset(t, cache.deleted, []string{"department", "tenant", "user"})
+
+	tenantSvc, cache, _, _ := newTestTenantService(&mockTenantRepo{
+		FindByIDFn: tenantsExist,
+		UpdateFn: func(_ context.Context, id string, _ domain.TenantPatch) (*domain.Tenant, error) {
+			return &domain.Tenant{ID: id}, nil
+		},
+	})
+	_, err = tenantSvc.Update(context.Background(), "T1", domain.TenantPatch{Name: ptr("T")}, nil, superCaller)
+	require.NoError(t, err)
+	assert.Subset(t, cache.deleted, []string{"department", "tenant", "user"})
 }

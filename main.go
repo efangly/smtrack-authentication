@@ -40,32 +40,33 @@ func main() {
 
 	// Initialize driven adapters (infrastructure)
 	db := database.NewPostgresDB(cfg)
-	redisCache := cache.NewRedisAdapter(cfg)
+	redisCache, sessions := cache.NewRedisAdapter(cfg)
 	msgAdapter := messaging.NewRabbitMQAdapter(cfg)
 	fileUpload := upload.NewFileUploadAdapter(cfg)
 	tokens := security.NewJWTIssuer(cfg)
-	hasher := security.NewBcryptHasher()
+	hasher := security.NewBcryptHasher(cfg.BcryptCost)
 
 	// Initialize repositories
 	userRepo := database.NewUserRepository(db)
-	wardRepo := database.NewWardRepository(db)
-	hospitalRepo := database.NewHospitalRepository(db)
+	tenantRepo := database.NewTenantRepository(db)
+	departmentRepo := database.NewDepartmentRepository(db)
 	auditRepo := database.NewAuditRepository(db)
 
 	// Initialize core services (use cases)
 	auditService := services.NewAuditService(auditRepo)
-	userService := services.NewUserService(userRepo, wardRepo, redisCache, fileUpload, hasher, auditService)
-	wardService := services.NewWardService(wardRepo, redisCache, msgAdapter, auditService)
-	hospitalService := services.NewHospitalService(hospitalRepo, redisCache, fileUpload, msgAdapter, auditService)
-	authService := services.NewAuthService(userService, redisCache, fileUpload, tokens, hasher)
+	userService := services.NewUserService(userRepo, tenantRepo, departmentRepo, redisCache, fileUpload, hasher, auditService)
+	tenantService := services.NewTenantService(tenantRepo, redisCache, fileUpload, msgAdapter, auditService)
+	departmentService := services.NewDepartmentService(departmentRepo, tenantRepo, redisCache, msgAdapter, auditService)
+	authService := services.NewAuthService(userService, redisCache, sessions, fileUpload, tokens, hasher, auditService)
 
 	// Initialize driving adapters (HTTP handlers)
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
-	hospitalHandler := handlers.NewHospitalHandler(hospitalService)
-	wardHandler := handlers.NewWardHandler(wardService)
+	tenantHandler := handlers.NewTenantHandler(tenantService)
+	departmentHandler := handlers.NewDepartmentHandler(departmentService)
 	auditHandler := handlers.NewAuditHandler(auditService)
 	healthHandler := handlers.NewHealthHandler()
+	imageHandler := handlers.NewImageHandler(services.NewImageService(fileUpload))
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -77,11 +78,17 @@ func main() {
 
 	// Global middleware
 	app.Use(middleware.Recover())
+	proxies, err := middleware.ParseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		logger.Fatal("Invalid TRUSTED_PROXIES", "error", err)
+	}
+	app.Use(middleware.RequestMeta(proxies))
+	app.Use(middleware.AuditDenied(auditService))
 	app.Use(middleware.RequestLogger())
 	app.Use(cors.New())
 
 	// Setup routes
-	router := httpAdapter.NewRouter(app, cfg, tokens, authHandler, userHandler, hospitalHandler, wardHandler, auditHandler, healthHandler)
+	router := httpAdapter.NewRouter(app, cfg, tokens, authHandler, userHandler, tenantHandler, departmentHandler, auditHandler, healthHandler, imageHandler)
 	router.Setup()
 
 	// Graceful shutdown

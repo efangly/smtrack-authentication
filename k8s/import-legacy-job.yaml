@@ -1,0 +1,37 @@
+# One-off. Copies the old hospital/ward database into the v2 database (re-runnable), or with
+# `args: ["--verify"]` compares them. Edit `args`, then delete the Job before re-applying:
+#   kubectl -n smtrack delete job authentication-v2-import --ignore-not-found
+#   kubectl -n smtrack apply -f k8s/import-legacy-job.yaml
+#   kubectl -n smtrack logs -f job/authentication-v2-import
+# LEGACY_DATABASE_URL lives in its own Secret (`authentication-legacy-db`), preferably a
+# read-only role: the tool only reads it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: authentication-v2-import
+  namespace: smtrack
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: import-legacy
+        image: siamatic/smtrack-auth-service:3.0.0
+        command: ["./import-legacy"]
+        args: []            # [] imports; ["--verify"] compares
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef: {name: authentication-v2-secrets, key: DATABASE_URL}
+        - name: LEGACY_DATABASE_URL
+          valueFrom:
+            secretKeyRef: {name: authentication-legacy-db, key: LEGACY_DATABASE_URL}

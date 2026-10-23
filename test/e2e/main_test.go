@@ -1,15 +1,31 @@
 //go:build e2e
 
-// Package e2e drives the real service (real Postgres/Redis/RabbitMQ from .env)
-// over HTTP to verify this round's security and audit-log changes. It is not
-// part of `go test ./...` — run it explicitly with:
+// Package e2e drives the real service (real Postgres and Redis) over HTTP. It
+// is not part of `go test ./...` — run it explicitly with:
 //
 //	go test -tags=e2e ./test/e2e/... -v
 //
-// It expects E2E_ADMIN_USERNAME / E2E_ADMIN_PASSWORD to name an existing
-// SUPER- or ADMIN-tier account in the target database, since public
-// registration can only ever create a GUEST. Set E2E_BASE_URL to point at an
-// already-running instance instead of spawning one.
+// The suite needs:
+//
+//   - The service's environment (DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET,
+//     REDIS_HOST, ...) in the process environment or the repo's .env. Use an
+//     empty throwaway database: the suite creates tenants, departments and
+//     users there, and audit_logs rows can never be deleted.
+//
+//   - E2E_ADMIN_USERNAME / E2E_ADMIN_PASSWORD naming an existing SUPER
+//     account (it creates tenants, hidden tenants and other admins, and resets
+//     passwords). Public registration only ever creates a GUEST, so seed it
+//     once, after the service has migrated the database:
+//
+//     INSERT INTO tenants (id, name, kind, hidden) VALUES ('e2e-root', 'E2E root', 'OTHER', true);
+//     INSERT INTO users (id, tenant_id, username, password, role)
+//     VALUES ('e2e-super', 'e2e-root', 'e2e-super', '<bcrypt hash>', 'SUPER');
+//
+//   - Optionally E2E_BASE_URL (for example http://localhost:8080/auth) to
+//     test an already-running instance instead of spawning one.
+//
+// /auth/login and /auth/register share a 10-per-minute limit per client, so the
+// suite paces itself and takes several minutes.
 package e2e
 
 import (
@@ -18,6 +34,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -116,7 +133,7 @@ func findRepoRoot() (string, error) {
 		if _, err := os.Stat(dir + "/go.mod"); err == nil {
 			return dir, nil
 		}
-		parent := dir + "/.."
+		parent := filepath.Dir(dir)
 		if parent == dir {
 			return "", fmt.Errorf("go.mod not found above %s", dir)
 		}

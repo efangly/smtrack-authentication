@@ -9,33 +9,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func actor(role domain.Role, hosID, wardID string) *domain.Actor {
-	return &domain.Actor{ID: "C1", Role: role, HosID: hosID, WardID: wardID}
+func actor(role domain.Role, tenantID string) *domain.Actor {
+	return &domain.Actor{ID: "C1", Role: role, TenantID: tenantID}
+}
+
+func actorIn(role domain.Role, tenantID string, departmentIDs ...string) *domain.Actor {
+	return &domain.Actor{ID: "C1", Role: role, TenantID: tenantID, DepartmentIDs: departmentIDs}
 }
 
 // --- users ---
 
 func TestUserService_FindOne_TenantScope(t *testing.T) {
 	tests := []struct {
-		name    string
-		caller  *domain.Actor
-		id      string
-		userHos string
-		wantErr string
+		name       string
+		caller     *domain.Actor
+		id         string
+		userTenant string
+		wantErr    string
 	}{
-		{"SUPER reads any hospital", actor(domain.RoleSuper, "", ""), "U2", "H2", ""},
-		{"SERVICE reads any hospital", actor(domain.RoleService, "", ""), "U2", "H2", ""},
-		{"ADMIN reads own hospital", actor(domain.RoleAdmin, "H1", ""), "U2", "H1", ""},
-		{"ADMIN cannot read other hospital", actor(domain.RoleAdmin, "H1", ""), "U2", "H2", "user not found"},
-		{"LEGACY_ADMIN cannot read other hospital", actor(domain.RoleLegacyAdmin, "H1", ""), "U2", "H2", "user not found"},
-		{"ADMIN without hospital cannot read ward-less user", actor(domain.RoleAdmin, "", ""), "U2", "", "user not found"},
-		{"USER cannot read another user", actor(domain.RoleUser, "H1", "W1"), "U2", "H1", "user not found"},
-		{"USER reads self", actor(domain.RoleUser, "H1", "W1"), "C1", "H9", ""},
+		{"SUPER reads any tenant", actor(domain.RoleSuper, ""), "U2", "T2", ""},
+		{"SERVICE reads any tenant", actor(domain.RoleService, ""), "U2", "T2", ""},
+		{"ADMIN reads own tenant", actor(domain.RoleAdmin, "T1"), "U2", "T1", ""},
+		{"ADMIN cannot read other tenant", actor(domain.RoleAdmin, "T1"), "U2", "T2", "user not found"},
+		{"LEGACY_ADMIN cannot read other tenant", actor(domain.RoleLegacyAdmin, "T1"), "U2", "T2", "user not found"},
+		{"ADMIN without tenant reads nobody", actor(domain.RoleAdmin, ""), "U2", "", "user not found"},
+		{"USER cannot read another user", actor(domain.RoleUser, "T1"), "U2", "T1", "user not found"},
+		{"USER reads self", actor(domain.RoleUser, "T1"), "C1", "T9", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &mockUserRepo{FindByIDFn: findUserIn(domain.RoleUser, tt.userHos)}
-			svc, _, _ := newTestUserService(repo)
+			svc, _, _ := newTestUserService(&mockUserRepo{FindByIDFn: findUserIn(domain.RoleUser, tt.userTenant)})
 
 			_, err := svc.FindOne(context.Background(), tt.id, tt.caller)
 			if tt.wantErr == "" {
@@ -55,27 +58,27 @@ func TestUserService_FindOne_RequiresCaller(t *testing.T) {
 
 func TestUserService_UpdateAndRemove_TenantScope(t *testing.T) {
 	tests := []struct {
-		name    string
-		caller  *domain.Actor
-		userHos string
-		wantErr string
+		name       string
+		caller     *domain.Actor
+		userTenant string
+		wantErr    string
 	}{
-		{"ADMIN own hospital", actor(domain.RoleAdmin, "H1", ""), "H1", ""},
-		{"ADMIN other hospital", actor(domain.RoleAdmin, "H1", ""), "H2", "user not found"},
-		{"LEGACY_ADMIN other hospital", actor(domain.RoleLegacyAdmin, "H1", ""), "H2", "user not found"},
-		{"SERVICE other hospital", actor(domain.RoleService, "H1", ""), "H2", ""},
-		{"SUPER other hospital", actor(domain.RoleSuper, "", ""), "H2", ""},
+		{"ADMIN own tenant", actor(domain.RoleAdmin, "T1"), "T1", ""},
+		{"ADMIN other tenant", actor(domain.RoleAdmin, "T1"), "T2", "user not found"},
+		{"LEGACY_ADMIN other tenant", actor(domain.RoleLegacyAdmin, "T1"), "T2", "user not found"},
+		{"SERVICE other tenant", actor(domain.RoleService, "T1"), "T2", ""},
+		{"SUPER other tenant", actor(domain.RoleSuper, ""), "T2", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wrote := false
 			repo := &mockUserRepo{
-				FindByIDFn: findUserIn(domain.RoleUser, tt.userHos),
+				FindByIDFn: findUserIn(domain.RoleUser, tt.userTenant),
 				UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
 					wrote = true
 					return &domain.User{ID: id}, nil
 				},
-				DeleteFn: func(_ context.Context, id string) (*domain.User, error) {
+				DeleteFn: func(_ context.Context, id, _ string) (*domain.User, error) {
 					wrote = true
 					return &domain.User{ID: id}, nil
 				},
@@ -96,158 +99,110 @@ func TestUserService_UpdateAndRemove_TenantScope(t *testing.T) {
 	}
 }
 
-// wardsIn returns a ward lookup where W1 is in H1 and W2 is in H2.
-func wardsIn(_ context.Context, id string) (*domain.Ward, error) {
-	switch id {
-	case "W1":
-		return &domain.Ward{ID: "W1", HosID: "H1"}, nil
-	case "W2":
-		return &domain.Ward{ID: "W2", HosID: "H2"}, nil
-	}
-	return nil, nil
-}
+// --- tenants ---
 
-func TestUserService_Create_WardMustBeInTenant(t *testing.T) {
+func TestTenantService_FindOne_Scope(t *testing.T) {
 	tests := []struct {
-		name    string
-		caller  *domain.Actor
-		wardID  string
-		wantErr string
+		name     string
+		caller   *domain.Actor
+		tenantID string
+		hidden   bool
+		want     bool
 	}{
-		{"ADMIN into own hospital", actor(domain.RoleAdmin, "H1", ""), "W1", ""},
-		{"ADMIN into other hospital", actor(domain.RoleAdmin, "H1", ""), "W2", "ward not found"},
-		{"ADMIN into missing ward", actor(domain.RoleAdmin, "H1", ""), "W9", "ward not found"},
-		{"SERVICE into any hospital", actor(domain.RoleService, "H1", ""), "W2", ""},
+		{"SUPER sees a hidden tenant", actor(domain.RoleSuper, ""), "T9", true, true},
+		{"SERVICE sees other", actor(domain.RoleService, ""), "T2", false, true},
+		{"SERVICE does not see a hidden tenant", actor(domain.RoleService, ""), "T9", true, false},
+		{"ADMIN sees own", actor(domain.RoleAdmin, "T1"), "T1", false, true},
+		{"ADMIN does not see other", actor(domain.RoleAdmin, "T1"), "T2", false, false},
+		{"ADMIN does not see its own hidden tenant", actor(domain.RoleAdmin, "T9"), "T9", true, false},
+		{"ADMIN without tenant sees nothing", actor(domain.RoleAdmin, ""), "", false, false},
+		{"USER sees own tenant", actor(domain.RoleUser, "T1"), "T1", false, true},
+		{"USER does not see other", actor(domain.RoleUser, "T1"), "T2", false, false},
+		{"GUEST without tenant sees nothing", actor(domain.RoleGuest, ""), "T1", false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &mockUserRepo{
-				CreateFn: func(_ context.Context, user *domain.User) (*domain.User, error) { return user, nil },
-			}
-			svc, _, _, wards := newTestUserServiceWithWards(repo)
-			wards.FindByIDFn = wardsIn
+			repo := &mockTenantRepo{FindByIDFn: func(_ context.Context, id string) (*domain.Tenant, error) {
+				return &domain.Tenant{ID: id, Hidden: tt.hidden}, nil
+			}}
+			svc, _, _, _ := newTestTenantService(repo)
 
-			_, err := svc.Create(context.Background(), &domain.User{Username: "u1", Role: domain.RoleUser, WardID: tt.wardID}, tt.caller)
-			if tt.wantErr == "" {
-				assert.NoError(t, err)
-			} else {
-				assert.EqualError(t, err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestUserService_Update_WardMoveMustStayInTenant(t *testing.T) {
-	repo := &mockUserRepo{
-		FindByIDFn: findUserIn(domain.RoleUser, "H1"), // currently in W1
-		UpdateFn: func(_ context.Context, id string, _ domain.UserPatch) (*domain.User, error) {
-			return &domain.User{ID: id}, nil
-		},
-	}
-	svc, _, _, wards := newTestUserServiceWithWards(repo)
-	lookups := 0
-	wards.FindByIDFn = func(ctx context.Context, id string) (*domain.Ward, error) {
-		lookups++
-		return wardsIn(ctx, id)
-	}
-	admin := actor(domain.RoleAdmin, "H1", "")
-
-	_, err := svc.Update(context.Background(), "U2", domain.UserPatch{WardID: ptr("W2")}, nil, admin)
-	assert.EqualError(t, err, "ward not found")
-
-	// Resubmitting the current ward needs no lookup and succeeds.
-	lookups = 0
-	_, err = svc.Update(context.Background(), "U2", domain.UserPatch{WardID: ptr("W1")}, nil, admin)
-	require.NoError(t, err)
-	assert.Zero(t, lookups)
-}
-
-// --- hospitals ---
-
-func TestHospitalService_FindOne_Scope(t *testing.T) {
-	tests := []struct {
-		name   string
-		caller *domain.Actor
-		hosID  string
-		want   bool
-	}{
-		{"SUPER sees development", actor(domain.RoleSuper, "", ""), developmentHosID, true},
-		{"SERVICE sees other", actor(domain.RoleService, "", ""), "H2", true},
-		{"SERVICE does not see development", actor(domain.RoleService, "", ""), developmentHosID, false},
-		{"ADMIN sees own", actor(domain.RoleAdmin, "H1", ""), "H1", true},
-		{"ADMIN does not see other", actor(domain.RoleAdmin, "H1", ""), "H2", false},
-		{"ADMIN without hospital sees nothing", actor(domain.RoleAdmin, "", ""), "", false},
-		{"USER sees hospital of own ward", actor(domain.RoleUser, "H1", "W1"), "H1", true},
-		{"USER does not see other", actor(domain.RoleUser, "H1", "W1"), "H2", false},
-		{"GUEST without ward sees nothing", actor(domain.RoleGuest, "", ""), "H1", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &mockHospitalRepo{
-				FindByIDFn: func(_ context.Context, id string) (*domain.Hospital, error) {
-					wardID := "W1"
-					if id != "H1" {
-						wardID = "W-" + id
-					}
-					return &domain.Hospital{ID: id, Wards: []domain.Ward{{ID: wardID, HosID: id}}}, nil
-				},
-			}
-			svc, _, _, _ := newTestHospitalService(repo)
-
-			_, err := svc.FindOne(context.Background(), tt.hosID, tt.caller)
+			_, err := svc.FindOne(context.Background(), tt.tenantID, tt.caller)
 			if tt.want {
 				assert.NoError(t, err)
 			} else {
-				assert.EqualError(t, err, "hospital not found")
+				assert.EqualError(t, err, "tenant not found")
 			}
 		})
 	}
 }
 
-func TestHospitalService_FindOne_RequiresCaller(t *testing.T) {
-	svc, _, _, _ := newTestHospitalService(&mockHospitalRepo{})
-	_, err := svc.FindOne(context.Background(), "H1", nil)
+func TestTenantService_FindOne_RequiresCaller(t *testing.T) {
+	svc, _, _, _ := newTestTenantService(&mockTenantRepo{})
+	_, err := svc.FindOne(context.Background(), "T1", nil)
 	assert.EqualError(t, err, "unauthorized")
 }
 
-// --- wards ---
+// A user sees only the departments it is linked to; an admin sees all of its tenant's.
+func TestTenantService_FindOne_NarrowsDepartments(t *testing.T) {
+	repo := &mockTenantRepo{FindByIDFn: func(_ context.Context, id string) (*domain.Tenant, error) {
+		return &domain.Tenant{ID: id, Departments: []domain.Department{{ID: "D1"}, {ID: "D2"}}}, nil
+	}}
+	svc, _, _, _ := newTestTenantService(repo)
 
-func TestWardService_FindOne_Scope(t *testing.T) {
+	tenant, err := svc.FindOne(context.Background(), "T1", actorIn(domain.RoleUser, "T1", "D2"))
+	require.NoError(t, err)
+	require.Len(t, tenant.Departments, 1)
+	assert.Equal(t, "D2", tenant.Departments[0].ID)
+
+	tenant, err = svc.FindOne(context.Background(), "T1", actorIn(domain.RoleUser, "T1"))
+	require.NoError(t, err)
+	assert.Empty(t, tenant.Departments)
+
+	tenant, err = svc.FindOne(context.Background(), "T1", actor(domain.RoleAdmin, "T1"))
+	require.NoError(t, err)
+	assert.Len(t, tenant.Departments, 2)
+}
+
+// --- departments ---
+
+func TestDepartmentService_FindOne_Scope(t *testing.T) {
 	tests := []struct {
 		name   string
 		caller *domain.Actor
-		hosID  string
+		hidden bool
+		tenant string
 		want   bool
 	}{
-		{"SUPER sees development", actor(domain.RoleSuper, "", ""), developmentHosID, true},
-		{"SERVICE does not see development", actor(domain.RoleService, "", ""), developmentHosID, false},
-		{"SERVICE sees other", actor(domain.RoleService, "", ""), "H2", true},
-		{"ADMIN sees own", actor(domain.RoleAdmin, "H1", ""), "H1", true},
-		{"ADMIN does not see other", actor(domain.RoleAdmin, "H1", ""), "H2", false},
-		{"LEGACY_ADMIN does not see other", actor(domain.RoleLegacyAdmin, "H1", ""), "H2", false},
-		{"USER listing is unscoped, so lookup is too", actor(domain.RoleUser, "H1", "W1"), "H2", true},
+		{"SUPER sees a hidden tenant's", actor(domain.RoleSuper, ""), true, "T9", true},
+		{"SERVICE does not see a hidden tenant's", actor(domain.RoleService, ""), true, "T9", false},
+		{"SERVICE sees other", actor(domain.RoleService, ""), false, "T2", true},
+		{"ADMIN sees every department of own tenant", actor(domain.RoleAdmin, "T1"), false, "T1", true},
+		{"ADMIN does not see other tenant's", actor(domain.RoleAdmin, "T1"), false, "T2", false},
+		{"LEGACY_ADMIN does not see other tenant's", actor(domain.RoleLegacyAdmin, "T1"), false, "T2", false},
+		{"USER sees a linked department", actorIn(domain.RoleUser, "T1", "D9"), false, "T1", true},
+		{"USER does not see an unlinked department", actorIn(domain.RoleUser, "T1", "D1"), false, "T1", false},
+		{"USER does not see another tenant's department", actorIn(domain.RoleUser, "T1", "D9"), false, "T2", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &mockWardRepo{
-				FindByIDFn: func(_ context.Context, id string) (*domain.Ward, error) {
-					return &domain.Ward{ID: id, HosID: tt.hosID}, nil
-				},
-			}
-			svc, _, _ := newTestWardService(repo)
+			repo := &mockDepartmentRepo{FindByIDFn: func(_ context.Context, id string) (*domain.Department, error) {
+				return &domain.Department{ID: id, TenantID: tt.tenant, Tenant: &domain.Tenant{ID: tt.tenant, Hidden: tt.hidden}}, nil
+			}}
+			svc, _, _ := newTestDepartmentService(repo)
 
-			_, err := svc.FindOne(context.Background(), "W9", tt.caller)
+			_, err := svc.FindOne(context.Background(), "D9", tt.caller)
 			if tt.want {
 				assert.NoError(t, err)
 			} else {
-				assert.EqualError(t, err, "ward not found")
+				assert.EqualError(t, err, "department not found")
 			}
 		})
 	}
 }
 
-func TestWardService_FindOne_RequiresCaller(t *testing.T) {
-	svc, _, _ := newTestWardService(&mockWardRepo{})
-	_, err := svc.FindOne(context.Background(), "W1", nil)
+func TestDepartmentService_FindOne_RequiresCaller(t *testing.T) {
+	svc, _, _ := newTestDepartmentService(&mockDepartmentRepo{})
+	_, err := svc.FindOne(context.Background(), "D1", nil)
 	assert.EqualError(t, err, "unauthorized")
 }

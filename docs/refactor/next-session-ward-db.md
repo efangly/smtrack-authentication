@@ -29,7 +29,14 @@
 | Event ไป service อื่น | `ward_service.go:109,113` `update-ward`; `hospital_service.go:134,137` `update-hospital` (RabbitMQ → device/legacy) | payload `{id, name}` |
 | Golden response | `handlers/testdata/golden/user_*.json` | user มี object `ward` ซ้อน `hospital` |
 
-## คำถามที่ยังเปิดอยู่ (ต้องได้คำตอบก่อนวางแผน)
+## ตัดสินใจแล้ว (Q24–Q27 ปิด)
+
+ดู [ADR 0003](../adr/0003-tenant-department-model.md) (Tenant/Department แทน Hospital/Ward),
+[ADR 0004](../adr/0004-parallel-run-separate-database.md) (รันคู่กับเวอร์ชันเดิมบน DB แยก, migration
+ด้วย `goose`, รวม Phase 6) และ [`GLOSSARY.md`](../../GLOSSARY.md) แผนลงมือทำอยู่ที่
+`~/.claude/plans/db-user-purring-hickey.md` ส่วนหัวข้อด้านล่างเก็บไว้เป็นบริบทเดิม
+
+## คำถามเดิม (ปิดแล้ว)
 
 1. **(Q24) จะเปลี่ยนอะไรกับ ward?** (a) user อยู่ได้หลาย ward (b) user ผูกกับ hospital ตรงๆ และ ward เป็นตัวเลือก (c) ward มีลำดับชั้น (d) เปลี่ยนแค่ field/ชนิด (e) อื่นๆ คำตอบนี้กำหนดว่าตารางข้างบนต้องแก้กี่แถว
 2. **(Q25) migration ใครเป็นเจ้าของ?** คำแนะนำ: ย้ายมาไว้ใน repo นี้เป็นไฟล์ SQL ที่มี version (`golang-migrate` หรือ `goose`) แล้วรันตอน deploy ตอนนี้ AutoMigrate มีแค่ `AuditLogs` (`database/postgres.go`)
@@ -52,7 +59,7 @@
 |---|---|---|
 | เลิกรับ token ที่ไม่มี `typ` | ตอนนี้ยอมรับไว้ชั่วคราว (`security/jwt.go` TODO) | หลัง deploy Phase 2 ไปแล้ว ≥ `REFRESH_EXPIRE_TIME` (7 วัน) |
 | ตั้ง `TRUSTED_PROXIES` ใน configmap `authentication-config` | ถ้าไม่ตั้ง ทุก client หลัง KrakenD จะใช้โควต้า rate limit 10/นาทีร่วมกัน | พร้อม deploy S5 (ops) |
-| ย้าย `JWT_SECRET`, `JWT_REFRESH_SECRET`, `REDIS_PASSWORD` จาก ConfigMap ไปเป็น Secret | `k8s/deploy.yaml` ใช้ `configMapKeyRef` ใครอ่าน ConfigMap ได้ก็เห็น secret | ops — ต้องสร้าง Secret ใน cluster ก่อน |
+| ~~ย้าย `JWT_SECRET`, `JWT_REFRESH_SECRET`, `REDIS_PASSWORD` จาก ConfigMap ไปเป็น Secret~~ **ทำแล้วใน `k8s/deploy-v2.yaml`** (เวอร์ชันเก่า `k8s/deploy.yaml` ยังใช้ ConfigMap) | ต้องสร้าง Secret `authentication-v2-secrets` ใน cluster ก่อน (ดู `k8s/secrets.example.yaml`) | ops |
 | L1 password policy (ตอนนี้ 4–20 ตัวอักษร) | อ่อนเกินไป | ผู้ใช้สั่งให้เลื่อนไว้ |
 | L3 `PATCH /auth/reset/:username` ตอบ "user not found" ให้ทุกคน | ใช้ไล่หา username ได้ | งานเล็ก ทำได้ทุกเมื่อ |
 | `buildWardFilter` ไม่จำกัด scope ของ USER/GUEST และรายการ hospital ของ guest ที่ไม่มี ward คืนทุกโรงพยาบาล | เห็นข้อมูลข้าม tenant (UI อาจพึ่งอยู่) | ตัดสินใจพร้อมงาน ward |

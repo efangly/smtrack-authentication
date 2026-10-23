@@ -1,0 +1,50 @@
+# Permanently removes records soft-deleted longer than SOFT_DELETE_RETENTION, with their
+# pictures, and writes a PURGE audit row for each. Runs weekly. `--dry-run` previews.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: authentication-v2-purge
+  namespace: smtrack
+spec:
+  schedule: "30 2 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+          containers:
+          - name: purge
+            image: siamatic/smtrack-auth-service:3.0.0
+            command: ["./purge"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            env:
+            - name: SOFT_DELETE_RETENTION
+              value: "365d"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: authentication-v2-secrets, key: DATABASE_URL}
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef: {name: authentication-config, key: S3_ENDPOINT}
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef: {name: authentication-config, key: S3_BUCKET}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: authentication-v2-secrets, key: S3_ACCESS_KEY}
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef: {name: authentication-v2-secrets, key: S3_SECRET_KEY}
+            - name: IMAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: authentication-v2-secrets, key: IMAGE_ENCRYPTION_KEY}

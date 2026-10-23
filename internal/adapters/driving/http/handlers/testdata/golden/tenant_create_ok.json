@@ -1,0 +1,45 @@
+{
+  "status": 201,
+  "body": {
+    "message": "Success",
+    "success": true,
+    "data": {
+      "id": "TID-1",
+      "seq": 7,
+      "name": "Acme Plant",
+      "kind": "FACTORY",
+      "legacy": false,
+      "hidden": false,
+      "address": "1 Main Rd",
+      "tel": "021234567",
+      "contactName": "Contact Person",
+      "contactTel": null,
+      "latitude": "13.7563",
+      "longitude": null,
+      "pic": null,
+      "labels": {
+        "department": {
+          "en": "Line",
+          "th": "สายการผลิต"
+        },
+        "tenant": {
+          "en": "Factory",
+          "th": "โรงงาน"
+        }
+      },
+      "departments": [
+        {
+          "id": "DID-1",
+          "seq": 1,
+          "tenantId": "TID-1",
+          "name": "Line A",
+          "legacy": false,
+          "createdAt": "2024-01-02T03:04:05Z",
+          "updatedAt": "2024-01-02T03:04:05Z"
+        }
+      ],
+      "createdAt": "2024-01-02T03:04:05Z",
+      "updatedAt": "2024-01-02T03:04:05Z"
+    }
+  }
+}

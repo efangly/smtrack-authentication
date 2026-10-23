@@ -19,27 +19,29 @@ func NewAuditRepository(db *gorm.DB) ports.AuditRepository {
 }
 
 func (r *auditRepository) Create(ctx context.Context, log *domain.AuditLog) (*domain.AuditLog, error) {
-	if err := r.db.WithContext(ctx).Create(log).Error; err != nil {
+	model := auditLogModelFrom(log)
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
 		return nil, fmt.Errorf("database error: %w", err)
 	}
-	return log, nil
+	created := model.toDomain()
+	return &created, nil
 }
 
 func (r *auditRepository) FindAll(ctx context.Context, filter ports.AuditFilter) ([]domain.AuditLog, error) {
-	var logs []domain.AuditLog
-	query := r.db.WithContext(ctx).Order("\"createAt\" DESC")
+	var models []auditLogModel
+	query := r.db.WithContext(ctx).Order("created_at DESC")
 
 	if filter.Entity != "" {
-		query = query.Where("\"entity\" = ?", filter.Entity)
+		query = query.Where("entity = ?", filter.Entity)
 	}
 	if filter.Action != "" {
-		query = query.Where("\"action\" = ?", filter.Action)
+		query = query.Where("action = ?", filter.Action)
 	}
 	if filter.EntityID != "" {
-		query = query.Where("\"entityId\" = ?", filter.EntityID)
+		query = query.Where("entity_id = ?", filter.EntityID)
 	}
 	if filter.ActorID != "" {
-		query = query.Where("\"actorId\" = ?", filter.ActorID)
+		query = query.Where("actor_id = ?", filter.ActorID)
 	}
 
 	limit := filter.Limit
@@ -48,8 +50,12 @@ func (r *auditRepository) FindAll(ctx context.Context, filter ports.AuditFilter)
 	}
 	query = query.Limit(limit).Offset(filter.Offset)
 
-	if err := query.Find(&logs).Error; err != nil {
+	if err := query.Find(&models).Error; err != nil {
 		return nil, fmt.Errorf("database error: %w", err)
+	}
+	logs := make([]domain.AuditLog, len(models))
+	for i, m := range models {
+		logs[i] = m.toDomain()
 	}
 	return logs, nil
 }

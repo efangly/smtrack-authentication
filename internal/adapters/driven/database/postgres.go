@@ -1,10 +1,10 @@
 package database
 
 import (
+	"context"
 	"time"
 
 	"github.com/efangly/smtrack-authentication/config"
-	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	applog "github.com/efangly/smtrack-authentication/pkg/logger"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -35,10 +35,8 @@ func NewPostgresDB(cfg *config.Config) *gorm.DB {
 	// sockets to a server that is no longer primary.
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	// AuditLogs is a table this service owns outright (unlike the Prisma-era
-	// Users/Wards/Hospitals schema), so it is safe to auto-migrate.
-	if err := db.AutoMigrate(&domain.AuditLog{}); err != nil {
-		applog.Fatal("Failed to migrate audit log table", "error", err)
+	if err := Migrate(context.Background(), sqlDB); err != nil {
+		applog.Fatal("Failed to migrate database", "error", err)
 	}
 
 	applog.Info("Database connected successfully")

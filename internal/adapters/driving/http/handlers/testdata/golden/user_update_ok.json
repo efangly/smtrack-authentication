@@ -5,7 +5,10 @@
     "success": true,
     "data": {
       "id": "UID-1",
-      "wardId": "WID-1",
+      "tenantId": "TID-1",
+      "departmentIds": [
+        "DID-1"
+      ],
       "username": "jdoe",
       "status": true,
       "role": "USER",
@@ -13,32 +16,37 @@
       "pic": null,
       "comment": "night shift",
       "createBy": null,
-      "createAt": "2024-01-02T03:04:05Z",
-      "updateAt": "2024-01-02T03:04:05Z",
-      "ward": {
-        "id": "WID-1",
-        "wardName": "Ward A",
-        "wardSeq": 1,
-        "type": "NEW",
-        "hosId": "HID-1",
-        "createAt": "2024-01-02T03:04:05Z",
-        "updateAt": "2024-01-02T03:04:05Z",
-        "hospital": {
-          "id": "HID-1",
-          "hosName": "General Hospital",
-          "hosSeq": 7,
-          "hosAddress": "1 Main Rd",
-          "hosTel": "021234567",
-          "userContact": "Contact Person",
-          "userTel": null,
-          "hosLatitude": "13.7563",
-          "hosLongitude": null,
-          "hosPic": null,
-          "hosType": "HOSPITAL",
-          "createAt": "2024-01-02T03:04:05Z",
-          "updateAt": "2024-01-02T03:04:05Z"
+      "lastLoginAt": "2024-01-02T03:04:05Z",
+      "tenant": {
+        "id": "TID-1",
+        "name": "Acme Plant",
+        "kind": "FACTORY",
+        "legacy": false,
+        "pic": null,
+        "labels": {
+          "department": {
+            "en": "Line",
+            "th": "สายการผลิต"
+          },
+          "tenant": {
+            "en": "Factory",
+            "th": "โรงงาน"
+          }
         }
-      }
+      },
+      "departments": [
+        {
+          "id": "DID-1",
+          "seq": 1,
+          "tenantId": "TID-1",
+          "name": "Line A",
+          "legacy": false,
+          "createdAt": "2024-01-02T03:04:05Z",
+          "updatedAt": "2024-01-02T03:04:05Z"
+        }
+      ],
+      "createdAt": "2024-01-02T03:04:05Z",
+      "updatedAt": "2024-01-02T03:04:05Z"
     }
   }
 }

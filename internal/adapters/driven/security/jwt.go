@@ -10,6 +10,7 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -39,7 +40,7 @@ func NewJWTIssuer(cfg *config.Config) ports.TokenIssuer {
 	return &jwtIssuer{
 		accessSecret:  []byte(cfg.JWTSecret),
 		refreshSecret: []byte(cfg.JWTRefreshSecret),
-		accessTTL:     parseDuration(cfg.ExpireTime, time.Hour),
+		accessTTL:     parseDuration(cfg.ExpireTime, 15*time.Minute),
 		refreshTTL:    parseDuration(cfg.RefreshExpireTime, 7*24*time.Hour),
 		now:           time.Now,
 	}
@@ -60,14 +61,15 @@ func (j *jwtIssuer) IssuePair(actor domain.Actor) (ports.TokenPair, error) {
 func (j *jwtIssuer) sign(actor domain.Actor, typ string, ttl time.Duration, secret []byte) (string, error) {
 	now := j.now()
 	claims := jwt.MapClaims{
-		"id":     actor.ID,
-		"name":   actor.Name,
-		"role":   string(actor.Role),
-		"hosId":  actor.HosID,
-		"wardId": actor.WardID,
-		"typ":    typ,
-		"exp":    now.Add(ttl).Unix(),
-		"iat":    now.Unix(),
+		"jti":           uuid.NewString(),
+		"id":            actor.ID,
+		"name":          actor.Name,
+		"role":          string(actor.Role),
+		"tenantId":      actor.TenantID,
+		"departmentIds": actor.DepartmentIDs,
+		"typ":           typ,
+		"exp":           now.Add(ttl).Unix(),
+		"iat":           now.Unix(),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
 }
@@ -78,24 +80,29 @@ func (j *jwtIssuer) VerifyAccess(token string) (*domain.Actor, error) {
 		return nil, errInvalidToken
 	}
 	return &domain.Actor{
-		ID:     claimString(claims, "id"),
-		Name:   claimString(claims, "name"),
-		Role:   domain.Role(claimString(claims, "role")),
-		HosID:  claimString(claims, "hosId"),
-		WardID: claimString(claims, "wardId"),
+		ID:            claimString(claims, "id"),
+		Name:          claimString(claims, "name"),
+		Role:          domain.Role(claimString(claims, "role")),
+		TenantID:      claimString(claims, "tenantId"),
+		DepartmentIDs: claimStrings(claims, "departmentIds"),
 	}, nil
 }
 
-func (j *jwtIssuer) VerifyRefresh(token string) (string, error) {
+func (j *jwtIssuer) VerifyRefresh(token string) (*ports.RefreshClaims, error) {
 	claims, ok := j.parse(token, typRefresh, j.refreshSecret)
 	if !ok {
-		return "", errInvalidRefreshToken
+		return nil, errInvalidRefreshToken
 	}
-	userID := claimString(claims, "id")
-	if userID == "" {
-		return "", errInvalidRefreshToken
+	userID, tokenID := claimString(claims, "id"), claimString(claims, "jti")
+	if userID == "" || tokenID == "" {
+		return nil, errInvalidRefreshToken
 	}
-	return userID, nil
+	iat, errIat := claims.GetIssuedAt()
+	exp, errExp := claims.GetExpirationTime()
+	if errIat != nil || errExp != nil || iat == nil || exp == nil {
+		return nil, errInvalidRefreshToken
+	}
+	return &ports.RefreshClaims{UserID: userID, TokenID: tokenID, IssuedAt: iat.Time, ExpiresAt: exp.Time}, nil
 }
 
 // parse verifies signature, algorithm, expiry and token type.
@@ -113,12 +120,9 @@ func (j *jwtIssuer) parse(token, wantTyp string, secret []byte) (jwt.MapClaims, 
 	if !ok {
 		return nil, false
 	}
-	// Tokens issued before "typ" existed carry no type. They are still
-	// accepted (the separate secrets already keep the two kinds apart) so a
-	// deploy does not sign everyone out.
-	// TODO: reject a missing typ once REFRESH_EXPIRE_TIME has passed after
-	// this shipped; every token in circulation will carry it by then.
-	if typ, present := claims["typ"]; present && typ != wantTyp {
+	// A token without a type claim is refused: this version signs with its own
+	// secrets, so no token from before "typ" existed can reach it.
+	if claims["typ"] != wantTyp {
 		return nil, false
 	}
 	return claims, true
@@ -129,6 +133,20 @@ func claimString(claims jwt.MapClaims, key string) string {
 		return s
 	}
 	return ""
+}
+
+func claimStrings(claims jwt.MapClaims, key string) []string {
+	values, ok := claims[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // parseDuration accepts Go durations ("1h", "90m") and a day suffix ("7d"),

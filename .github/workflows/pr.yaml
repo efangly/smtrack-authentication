@@ -1,0 +1,73 @@
+name: Pull request checks
+
+# Runs on every pull request. Nothing here pushes an image or touches k8s/.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: authtest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Vet
+      run: go vet ./... && go vet -tags integration ./...
+    - name: Check formatting
+      run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+    - name: Test
+      run: go test ./...
+    # The integration tests run the real migrations, repositories, session store and the
+    # import and purge tools. They need empty databases (audit_logs rows cannot be deleted),
+    # so each package gets its own.
+    - name: Integration tests
+      env:
+        PGPASSWORD: test
+        REDIS_TEST_ADDR: localhost:6379
+      run: |
+        for db in db_repo db_purge db_import_new db_import_old; do
+          psql -h localhost -U postgres -c "CREATE DATABASE $db"
+        done
+        url() { echo "postgres://postgres:test@localhost:5432/$1?sslmode=disable"; }
+        TEST_DATABASE_URL=$(url db_repo) go test -tags integration ./internal/adapters/driven/...
+        TEST_DATABASE_URL=$(url db_purge) go test -tags integration ./internal/purge/
+        TEST_DATABASE_URL=$(url db_import_new) LEGACY_TEST_DATABASE_URL=$(url db_import_old) \
+          go test -tags integration ./internal/legacyimport/
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    # Fails on a known vulnerability in code the service actually calls.
+    - name: govulncheck
+      run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+    - name: Build image (not pushed)
+      run: docker build -t smtrack-auth-service:pr .
+    - name: Trivy image scan
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        image-ref: smtrack-auth-service:pr
+        severity: CRITICAL,HIGH
+        ignore-unfixed: true
+        exit-code: "1"

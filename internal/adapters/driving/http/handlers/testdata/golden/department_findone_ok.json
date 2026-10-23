@@ -1,0 +1,33 @@
+{
+  "status": 200,
+  "body": {
+    "message": "Success",
+    "success": true,
+    "data": {
+      "id": "DID-1",
+      "seq": 1,
+      "tenantId": "TID-1",
+      "name": "Line A",
+      "legacy": true,
+      "tenant": {
+        "id": "TID-1",
+        "name": "Acme Plant",
+        "kind": "FACTORY",
+        "legacy": false,
+        "pic": null,
+        "labels": {
+          "department": {
+            "en": "Line",
+            "th": "สายการผลิต"
+          },
+          "tenant": {
+            "en": "Factory",
+            "th": "โรงงาน"
+          }
+        }
+      },
+      "createdAt": "2024-01-02T03:04:05Z",
+      "updatedAt": "2024-01-02T03:04:05Z"
+    }
+  }
+}

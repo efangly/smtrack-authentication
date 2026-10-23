@@ -9,31 +9,28 @@ import (
 )
 
 // TestRegister_ForcesGuestAndIgnoresPrivilegedFields verifies ToPublicUser is
-// used on the public register route: an attacker-supplied role/status/id in
-// the body must never be honored.
+// used on the public register route: an attacker-supplied role/status/id and
+// any departments in the body must never be honored.
 func TestRegister_ForcesGuestAndIgnoresPrivilegedFields(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	deptID := createDepartment(t, admin, tenantID)
 
 	username := e2eName("user")
 	resp, env := doJSON(t, http.MethodPost, "/register", map[string]any{
-		"id":       "attacker-chosen-id",
-		"wardId":   wardID,
-		"username": username,
-		"password": "TestPass123",
-		"role":     "SUPER",
-		"status":   false,
+		"id":            "attacker-chosen-id",
+		"tenantId":      tenantID,
+		"departmentIds": []string{deptID},
+		"username":      username,
+		"password":      testPassword,
+		"role":          "SUPER",
+		"status":        false,
 	}, "")
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("register: status %d, message %q", resp.StatusCode, env.Message)
 	}
 
-	var created struct {
-		ID     string `json:"id"`
-		Role   string `json:"role"`
-		Status bool   `json:"status"`
-	}
+	var created userView
 	if err := json.Unmarshal(env.Data, &created); err != nil {
 		t.Fatalf("decode created user: %v", err)
 	}
@@ -50,6 +47,35 @@ func TestRegister_ForcesGuestAndIgnoresPrivilegedFields(t *testing.T) {
 	if !created.Status {
 		t.Error("status = false, want true (ToPublicUser must force it)")
 	}
+	if created.TenantID != tenantID {
+		t.Errorf("tenantId = %q, want %q", created.TenantID, tenantID)
+	}
+	if len(created.DepartmentIDs) != 0 {
+		t.Errorf("departmentIds = %v, want none (a self-registered user is placed by an admin)", created.DepartmentIDs)
+	}
+}
+
+// TestRegister_HiddenOrUnknownTenant_Refused verifies the public route cannot
+// be used to join a hidden tenant, and that the answer does not tell a hidden
+// tenant from one that does not exist.
+func TestRegister_HiddenOrUnknownTenant_Refused(t *testing.T) {
+	admin := adminToken(t)
+	hidden := createTenantWith(t, admin, map[string]any{"name": e2eName("hidden"), "hidden": true})
+
+	hiddenResp, hiddenEnv := doJSON(t, http.MethodPost, "/register", map[string]any{
+		"tenantId": hidden, "username": e2eName("user"), "password": testPassword,
+	}, "")
+	unknownResp, unknownEnv := doJSON(t, http.MethodPost, "/register", map[string]any{
+		"tenantId": e2eName("no-such-tenant"), "username": e2eName("user"), "password": testPassword,
+	}, "")
+
+	if hiddenResp.StatusCode < 400 || unknownResp.StatusCode < 400 {
+		t.Fatalf("register into hidden/unknown tenant succeeded: hidden=%d unknown=%d", hiddenResp.StatusCode, unknownResp.StatusCode)
+	}
+	if hiddenResp.StatusCode != unknownResp.StatusCode || hiddenEnv.Message != unknownEnv.Message {
+		t.Errorf("hidden tenant (%d %q) is distinguishable from an unknown one (%d %q)",
+			hiddenResp.StatusCode, hiddenEnv.Message, unknownResp.StatusCode, unknownEnv.Message)
+	}
 }
 
 // TestRegister_DuplicateUsername_ReturnsDomainMessage checks that a plain
@@ -58,12 +84,11 @@ func TestRegister_ForcesGuestAndIgnoresPrivilegedFields(t *testing.T) {
 // that wrap an infra cause).
 func TestRegister_DuplicateUsername_ReturnsDomainMessage(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 
 	resp, env := doJSON(t, http.MethodPost, "/register", map[string]any{
-		"wardId":   wardID,
+		"tenantId": tenantID,
 		"username": user.Username,
 		"password": "AnotherPass123",
 	}, "")
@@ -83,7 +108,7 @@ func TestRegister_DuplicateUsername_ReturnsDomainMessage(t *testing.T) {
 // StructValidator wired in main.go is enforced on this route.
 func TestRegister_MissingRequiredField_ReturnsValidatorMessage(t *testing.T) {
 	resp, env := doJSON(t, http.MethodPost, "/register", map[string]any{
-		"wardId": "some-ward",
+		"tenantId": "some-tenant",
 		// username and password omitted
 	}, "")
 
@@ -92,5 +117,13 @@ func TestRegister_MissingRequiredField_ReturnsValidatorMessage(t *testing.T) {
 	}
 	if env.Message == "" || env.Message == "Internal server error" {
 		t.Errorf("message = %q, want a validator-produced message", env.Message)
+	}
+
+	// The tenant is required too: there is no longer a way to derive it.
+	resp, _ = doJSON(t, http.MethodPost, "/register", map[string]any{
+		"username": e2eName("user"), "password": testPassword,
+	}, "")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("register without tenantId: status = %d, want 400", resp.StatusCode)
 	}
 }

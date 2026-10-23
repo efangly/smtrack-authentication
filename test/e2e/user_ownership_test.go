@@ -12,9 +12,8 @@ import (
 // and update their own record.
 func TestUserOwnership_SelfAccess_Allowed(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 	login := loginAs(t, user.Username, user.Password)
 
 	getResp, getEnv := doJSON(t, http.MethodGet, "/user/"+user.ID, nil, login.Token)
@@ -35,10 +34,9 @@ func TestUserOwnership_SelfAccess_Allowed(t *testing.T) {
 // cannot read or update someone else's record.
 func TestUserOwnership_OtherUserAccess_Forbidden(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	self := createUser(t, admin, wardID)
-	other := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	self := createUser(t, admin, tenantID)
+	other := createUser(t, admin, tenantID)
 	login := loginAs(t, self.Username, self.Password)
 
 	getResp, _ := doJSON(t, http.MethodGet, "/user/"+other.ID, nil, login.Token)
@@ -55,20 +53,21 @@ func TestUserOwnership_OtherUserAccess_Forbidden(t *testing.T) {
 }
 
 // TestUserOwnership_SelfUpdate_StripsPrivilegedFields verifies a non-admin
-// caller cannot self-grant role/status/wardId changes even though the
+// caller cannot self-grant role/status/tenant/department changes even though the
 // request itself succeeds (fields are silently stripped, not rejected).
 func TestUserOwnership_SelfUpdate_StripsPrivilegedFields(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	otherWardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	otherTenantID := createTenant(t, admin, "LAB")
+	otherDeptID := createDepartment(t, admin, otherTenantID)
+	user := createUser(t, admin, tenantID)
 	login := loginAs(t, user.Username, user.Password)
 
 	putResp, putEnv := doJSON(t, http.MethodPut, "/user/"+user.ID, map[string]any{
-		"role":   "SUPER",
-		"status": false,
-		"wardId": otherWardID,
+		"role":          "SUPER",
+		"status":        false,
+		"tenantId":      otherTenantID,
+		"departmentIds": []string{otherDeptID},
 	}, login.Token)
 	if putResp.StatusCode != http.StatusOK {
 		t.Fatalf("self PUT with privileged fields: status %d, message %q", putResp.StatusCode, putEnv.Message)
@@ -79,9 +78,10 @@ func TestUserOwnership_SelfUpdate_StripsPrivilegedFields(t *testing.T) {
 		t.Fatalf("self GET after update: status %d, message %q", getResp.StatusCode, getEnv.Message)
 	}
 	var current struct {
-		Role   string `json:"role"`
-		Status bool   `json:"status"`
-		WardID string `json:"wardId"`
+		Role          string   `json:"role"`
+		Status        bool     `json:"status"`
+		TenantID      string   `json:"tenantId"`
+		DepartmentIDs []string `json:"departmentIds"`
 	}
 	if err := json.Unmarshal(getEnv.Data, &current); err != nil {
 		t.Fatalf("decode user: %v", err)
@@ -93,8 +93,11 @@ func TestUserOwnership_SelfUpdate_StripsPrivilegedFields(t *testing.T) {
 	if !current.Status {
 		t.Error("status was self-disabled; handler must strip it for non-admin callers")
 	}
-	if current.WardID == otherWardID {
-		t.Error("wardId was self-changed; handler must strip it for non-admin callers")
+	if current.TenantID != tenantID {
+		t.Error("tenantId was self-changed; handler must strip it for non-admin callers")
+	}
+	if containsID(current.DepartmentIDs, otherDeptID) {
+		t.Error("departmentIds were self-changed; handler must strip them for non-admin callers")
 	}
 }
 
@@ -103,9 +106,8 @@ func TestUserOwnership_SelfUpdate_StripsPrivilegedFields(t *testing.T) {
 // an admin-tier caller can delete it.
 func TestUserOwnership_Delete_RequiresAdminTier(t *testing.T) {
 	admin := adminToken(t)
-	hosID := createHospital(t, admin)
-	wardID := createWard(t, admin, hosID)
-	user := createUser(t, admin, wardID)
+	tenantID := createTenant(t, admin, "HOSPITAL")
+	user := createUser(t, admin, tenantID)
 	login := loginAs(t, user.Username, user.Password)
 
 	selfDeleteResp, _ := doJSON(t, http.MethodDelete, "/user/"+user.ID, nil, login.Token)

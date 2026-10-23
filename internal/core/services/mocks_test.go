@@ -12,13 +12,25 @@ import (
 )
 
 // --- Mock UserRepository ---
+// Fn fields a test does not set fall back to a harmless default.
 type mockUserRepo struct {
 	CreateFn         func(ctx context.Context, user *domain.User) (*domain.User, error)
 	FindAllFn        func(ctx context.Context, filter ports.UserFilter) ([]domain.User, error)
 	FindByIDFn       func(ctx context.Context, id string) (*domain.User, error)
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
+	FindAnyByIDFn    func(ctx context.Context, id string) (*domain.User, error)
+	UsernameTakenFn  func(ctx context.Context, username string) (bool, error)
 	UpdateFn         func(ctx context.Context, id string, data domain.UserPatch) (*domain.User, error)
-	DeleteFn         func(ctx context.Context, id string) (*domain.User, error)
+	DeleteFn         func(ctx context.Context, id string, deletedBy string) (*domain.User, error)
+	RestoreFn        func(ctx context.Context, id string) (*domain.User, error)
+	RecordLoginFn    func(ctx context.Context, id string, at time.Time) error
+}
+
+func (m *mockUserRepo) RecordLogin(ctx context.Context, id string, at time.Time) error {
+	if m.RecordLoginFn == nil {
+		return nil
+	}
+	return m.RecordLoginFn(ctx, id, at)
 }
 
 func (m *mockUserRepo) Create(ctx context.Context, user *domain.User) (*domain.User, error) {
@@ -33,61 +45,111 @@ func (m *mockUserRepo) FindByID(ctx context.Context, id string) (*domain.User, e
 func (m *mockUserRepo) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	return m.FindByUsernameFn(ctx, username)
 }
+func (m *mockUserRepo) FindAnyByID(ctx context.Context, id string) (*domain.User, error) {
+	return m.FindAnyByIDFn(ctx, id)
+}
+func (m *mockUserRepo) UsernameTaken(ctx context.Context, username string) (bool, error) {
+	if m.UsernameTakenFn == nil {
+		return false, nil
+	}
+	return m.UsernameTakenFn(ctx, username)
+}
 func (m *mockUserRepo) Update(ctx context.Context, id string, data domain.UserPatch) (*domain.User, error) {
 	return m.UpdateFn(ctx, id, data)
 }
-func (m *mockUserRepo) Delete(ctx context.Context, id string) (*domain.User, error) {
-	return m.DeleteFn(ctx, id)
+func (m *mockUserRepo) Delete(ctx context.Context, id string, deletedBy string) (*domain.User, error) {
+	return m.DeleteFn(ctx, id, deletedBy)
+}
+func (m *mockUserRepo) Restore(ctx context.Context, id string) (*domain.User, error) {
+	return m.RestoreFn(ctx, id)
 }
 
-// --- Mock WardRepository ---
-type mockWardRepo struct {
-	CreateFn   func(ctx context.Context, ward *domain.Ward) (*domain.Ward, error)
-	FindAllFn  func(ctx context.Context, filter ports.WardFilter) ([]domain.Ward, error)
-	FindByIDFn func(ctx context.Context, id string) (*domain.Ward, error)
-	UpdateFn   func(ctx context.Context, id string, data domain.WardPatch) (*domain.Ward, error)
-	DeleteFn   func(ctx context.Context, id string) error
+// --- Mock DepartmentRepository ---
+type mockDepartmentRepo struct {
+	CreateFn      func(ctx context.Context, department *domain.Department) (*domain.Department, error)
+	FindAllFn     func(ctx context.Context, filter ports.DepartmentFilter) ([]domain.Department, error)
+	FindByIDFn    func(ctx context.Context, id string) (*domain.Department, error)
+	FindByIDsFn   func(ctx context.Context, ids []string) ([]domain.Department, error)
+	FindAnyByIDFn func(ctx context.Context, id string) (*domain.Department, error)
+	NameTakenFn   func(ctx context.Context, tenantID, name, exceptID string) (bool, error)
+	UpdateFn      func(ctx context.Context, id string, data domain.DepartmentPatch) (*domain.Department, error)
+	DeleteFn      func(ctx context.Context, id string, deletedBy string) (*domain.Department, error)
+	RestoreFn     func(ctx context.Context, id string) (*domain.Department, error)
 }
 
-func (m *mockWardRepo) Create(ctx context.Context, ward *domain.Ward) (*domain.Ward, error) {
-	return m.CreateFn(ctx, ward)
+func (m *mockDepartmentRepo) Create(ctx context.Context, d *domain.Department) (*domain.Department, error) {
+	return m.CreateFn(ctx, d)
 }
-func (m *mockWardRepo) FindAll(ctx context.Context, filter ports.WardFilter) ([]domain.Ward, error) {
+func (m *mockDepartmentRepo) FindAll(ctx context.Context, filter ports.DepartmentFilter) ([]domain.Department, error) {
 	return m.FindAllFn(ctx, filter)
 }
-func (m *mockWardRepo) FindByID(ctx context.Context, id string) (*domain.Ward, error) {
+func (m *mockDepartmentRepo) FindByID(ctx context.Context, id string) (*domain.Department, error) {
 	return m.FindByIDFn(ctx, id)
 }
-func (m *mockWardRepo) Update(ctx context.Context, id string, data domain.WardPatch) (*domain.Ward, error) {
+func (m *mockDepartmentRepo) FindByIDs(ctx context.Context, ids []string) ([]domain.Department, error) {
+	return m.FindByIDsFn(ctx, ids)
+}
+func (m *mockDepartmentRepo) FindAnyByID(ctx context.Context, id string) (*domain.Department, error) {
+	return m.FindAnyByIDFn(ctx, id)
+}
+func (m *mockDepartmentRepo) NameTaken(ctx context.Context, tenantID, name, exceptID string) (bool, error) {
+	if m.NameTakenFn == nil {
+		return false, nil
+	}
+	return m.NameTakenFn(ctx, tenantID, name, exceptID)
+}
+func (m *mockDepartmentRepo) Update(ctx context.Context, id string, data domain.DepartmentPatch) (*domain.Department, error) {
 	return m.UpdateFn(ctx, id, data)
 }
-func (m *mockWardRepo) Delete(ctx context.Context, id string) error {
-	return m.DeleteFn(ctx, id)
+func (m *mockDepartmentRepo) Delete(ctx context.Context, id string, deletedBy string) (*domain.Department, error) {
+	return m.DeleteFn(ctx, id, deletedBy)
+}
+func (m *mockDepartmentRepo) Restore(ctx context.Context, id string) (*domain.Department, error) {
+	return m.RestoreFn(ctx, id)
 }
 
-// --- Mock HospitalRepository ---
-type mockHospitalRepo struct {
-	CreateFn   func(ctx context.Context, hospital *domain.Hospital) (*domain.Hospital, error)
-	FindAllFn  func(ctx context.Context, filter ports.HospitalFilter) ([]domain.Hospital, error)
-	FindByIDFn func(ctx context.Context, id string) (*domain.Hospital, error)
-	UpdateFn   func(ctx context.Context, id string, data domain.HospitalPatch) (*domain.Hospital, error)
-	DeleteFn   func(ctx context.Context, id string) (*domain.Hospital, error)
+// --- Mock TenantRepository ---
+type mockTenantRepo struct {
+	CreateFn      func(ctx context.Context, tenant *domain.Tenant) (*domain.Tenant, error)
+	FindAllFn     func(ctx context.Context, filter ports.TenantFilter) ([]domain.Tenant, error)
+	FindByIDFn    func(ctx context.Context, id string) (*domain.Tenant, error)
+	FindAnyByIDFn func(ctx context.Context, id string) (*domain.Tenant, error)
+	HasMembersFn  func(ctx context.Context, id string) (bool, error)
+	UpdateFn      func(ctx context.Context, id string, data domain.TenantPatch) (*domain.Tenant, error)
+	SaveLabelsFn  func(ctx context.Context, id string, labels domain.Labels) error
+	DeleteFn      func(ctx context.Context, id string, deletedBy string) (*domain.Tenant, error)
+	RestoreFn     func(ctx context.Context, id string) (*domain.Tenant, error)
 }
 
-func (m *mockHospitalRepo) Create(ctx context.Context, hospital *domain.Hospital) (*domain.Hospital, error) {
-	return m.CreateFn(ctx, hospital)
+func (m *mockTenantRepo) Create(ctx context.Context, t *domain.Tenant) (*domain.Tenant, error) {
+	return m.CreateFn(ctx, t)
 }
-func (m *mockHospitalRepo) FindAll(ctx context.Context, filter ports.HospitalFilter) ([]domain.Hospital, error) {
+func (m *mockTenantRepo) FindAll(ctx context.Context, filter ports.TenantFilter) ([]domain.Tenant, error) {
 	return m.FindAllFn(ctx, filter)
 }
-func (m *mockHospitalRepo) FindByID(ctx context.Context, id string) (*domain.Hospital, error) {
+func (m *mockTenantRepo) FindByID(ctx context.Context, id string) (*domain.Tenant, error) {
 	return m.FindByIDFn(ctx, id)
 }
-func (m *mockHospitalRepo) Update(ctx context.Context, id string, data domain.HospitalPatch) (*domain.Hospital, error) {
+func (m *mockTenantRepo) FindAnyByID(ctx context.Context, id string) (*domain.Tenant, error) {
+	return m.FindAnyByIDFn(ctx, id)
+}
+func (m *mockTenantRepo) HasMembers(ctx context.Context, id string) (bool, error) {
+	if m.HasMembersFn == nil {
+		return false, nil
+	}
+	return m.HasMembersFn(ctx, id)
+}
+func (m *mockTenantRepo) Update(ctx context.Context, id string, data domain.TenantPatch) (*domain.Tenant, error) {
 	return m.UpdateFn(ctx, id, data)
 }
-func (m *mockHospitalRepo) Delete(ctx context.Context, id string) (*domain.Hospital, error) {
-	return m.DeleteFn(ctx, id)
+func (m *mockTenantRepo) SaveLabels(ctx context.Context, id string, labels domain.Labels) error {
+	return m.SaveLabelsFn(ctx, id, labels)
+}
+func (m *mockTenantRepo) Delete(ctx context.Context, id string, deletedBy string) (*domain.Tenant, error) {
+	return m.DeleteFn(ctx, id, deletedBy)
+}
+func (m *mockTenantRepo) Restore(ctx context.Context, id string) (*domain.Tenant, error) {
+	return m.RestoreFn(ctx, id)
 }
 
 // --- Mock CachePort ---
@@ -158,6 +220,10 @@ type mockUpload struct {
 	DeleteFn func(path string, filename string) error
 }
 
+func (m *mockUpload) Download(context.Context, string, string) (*domain.File, error) {
+	return nil, nil
+}
+
 func newMockUpload() *mockUpload {
 	return &mockUpload{
 		UploadFn: func(_ *domain.File, _ string) (string, error) {
@@ -183,6 +249,20 @@ type mockUserService struct {
 	FindByUsernameFn func(ctx context.Context, username string) (*domain.User, error)
 	UpdateFn         func(ctx context.Context, id string, data domain.UserPatch, file *domain.File, caller *domain.Actor) (*domain.User, error)
 	RemoveFn         func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
+	RestoreFn        func(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error)
+	UsernameTakenFn  func(ctx context.Context, username string) (bool, error)
+	RecordLoginFn    func(ctx context.Context, id string) error
+	AccessReportFn   func(ctx context.Context, caller *domain.Actor) ([]domain.User, error)
+}
+
+func (m *mockUserService) RecordLogin(ctx context.Context, id string) error {
+	if m.RecordLoginFn == nil {
+		return nil
+	}
+	return m.RecordLoginFn(ctx, id)
+}
+func (m *mockUserService) AccessReport(ctx context.Context, caller *domain.Actor) ([]domain.User, error) {
+	return m.AccessReportFn(ctx, caller)
 }
 
 func (m *mockUserService) Create(ctx context.Context, user *domain.User, caller *domain.Actor) (*domain.User, error) {
@@ -205,6 +285,15 @@ func (m *mockUserService) Update(ctx context.Context, id string, data domain.Use
 }
 func (m *mockUserService) Remove(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
 	return m.RemoveFn(ctx, id, caller)
+}
+func (m *mockUserService) Restore(ctx context.Context, id string, caller *domain.Actor) (*domain.User, error) {
+	return m.RestoreFn(ctx, id, caller)
+}
+func (m *mockUserService) UsernameTaken(ctx context.Context, username string) (bool, error) {
+	if m.UsernameTakenFn == nil {
+		return false, nil
+	}
+	return m.UsernameTakenFn(ctx, username)
 }
 
 // --- Mock AuditRepository ---
@@ -259,6 +348,8 @@ type fakeTokens struct {
 	issued        []domain.Actor
 	refreshUserID string
 	refreshErr    error
+	// refreshClaims, when set, is returned as-is instead of one built from refreshUserID.
+	refreshClaims *ports.RefreshClaims
 }
 
 func (f *fakeTokens) IssuePair(actor domain.Actor) (ports.TokenPair, error) {
@@ -271,8 +362,67 @@ func (f *fakeTokens) IssuePair(actor domain.Actor) (ports.TokenPair, error) {
 func (f *fakeTokens) VerifyAccess(string) (*domain.Actor, error) {
 	return nil, errors.New("not used by the services")
 }
-func (f *fakeTokens) VerifyRefresh(string) (string, error) {
-	return f.refreshUserID, f.refreshErr
+func (f *fakeTokens) VerifyRefresh(string) (*ports.RefreshClaims, error) {
+	if f.refreshErr != nil {
+		return nil, f.refreshErr
+	}
+	if f.refreshClaims != nil {
+		return f.refreshClaims, nil
+	}
+	return &ports.RefreshClaims{UserID: f.refreshUserID, TokenID: "jti-1", IssuedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+// --- Fake SessionStore ---
+
+type fakeSessions struct {
+	failures   map[string]int
+	revoked    map[string]bool
+	validAfter map[string]time.Time
+	err        error
+}
+
+func newFakeSessions() *fakeSessions {
+	return &fakeSessions{failures: map[string]int{}, revoked: map[string]bool{}, validAfter: map[string]time.Time{}}
+}
+
+func (f *fakeSessions) RecordLoginFailure(_ context.Context, key string, _ time.Duration) (int, error) {
+	f.failures[key]++
+	return f.failures[key], f.err
+}
+func (f *fakeSessions) LoginFailures(_ context.Context, key string) (int, error) {
+	return f.failures[key], f.err
+}
+func (f *fakeSessions) ClearLoginFailures(_ context.Context, key string) error {
+	delete(f.failures, key)
+	return f.err
+}
+func (f *fakeSessions) RevokeToken(_ context.Context, id string, _ time.Duration) error {
+	f.revoked[id] = true
+	return f.err
+}
+func (f *fakeSessions) IsTokenRevoked(_ context.Context, id string) (bool, error) {
+	return f.revoked[id], f.err
+}
+func (f *fakeSessions) SetTokensValidAfter(_ context.Context, id string, at time.Time, _ time.Duration) error {
+	f.validAfter[id] = at
+	return f.err
+}
+func (f *fakeSessions) TokensValidAfter(_ context.Context, id string) (time.Time, error) {
+	return f.validAfter[id], f.err
+}
+
+// recordedAudit collects the events an audit mock was given.
+type recordedAudit struct {
+	*mockAuditService
+	actions []domain.AuditAction
+}
+
+func newRecordedAudit() *recordedAudit {
+	r := &recordedAudit{}
+	r.mockAuditService = &mockAuditService{RecordFn: func(_ context.Context, _ domain.AuditEntity, a domain.AuditAction, _ string, _ *domain.Actor, _ any) {
+		r.actions = append(r.actions, a)
+	}}
+	return r
 }
 
 func ptr[T any](v T) *T { return &v }

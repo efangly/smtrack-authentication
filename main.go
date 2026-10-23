@@ -66,6 +66,7 @@ func main() {
 	departmentHandler := handlers.NewDepartmentHandler(departmentService)
 	auditHandler := handlers.NewAuditHandler(auditService)
 	healthHandler := handlers.NewHealthHandler()
+	imageHandler := handlers.NewImageHandler(services.NewImageService(fileUpload))
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -87,7 +88,7 @@ func main() {
 	app.Use(cors.New())
 
 	// Setup routes
-	router := httpAdapter.NewRouter(app, cfg, tokens, authHandler, userHandler, tenantHandler, departmentHandler, auditHandler, healthHandler)
+	router := httpAdapter.NewRouter(app, cfg, tokens, authHandler, userHandler, tenantHandler, departmentHandler, auditHandler, healthHandler, imageHandler)
 	router.Setup()
 
 	// Graceful shutdown

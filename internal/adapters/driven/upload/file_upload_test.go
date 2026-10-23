@@ -2,119 +2,113 @@ package upload
 
 import (
 	"context"
-	"io"
-	"mime"
-	"net/http"
-	"net/http/httptest"
+	"errors"
+	"regexp"
 	"testing"
 
-	"github.com/efangly/smtrack-authentication/config"
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type received struct {
-	path        string
-	disposition string
-	filename    string
-	contentType string
-	data        []byte
-	headers     http.Header
+// memStore stands in for MinIO.
+type memStore struct {
+	objects map[string][]byte
+	failPut bool
 }
 
-// imageServer stands in for the image service and records the part it got.
-func imageServer(t *testing.T, got *received) *httptest.Server {
+func (m *memStore) Put(_ context.Context, key string, data []byte) error {
+	if m.failPut {
+		return errors.New("minio down")
+	}
+	m.objects[key] = data
+	return nil
+}
+func (m *memStore) Get(_ context.Context, key string) ([]byte, error) {
+	d, ok := m.objects[key]
+	if !ok {
+		return nil, errors.New("image not found")
+	}
+	return d, nil
+}
+func (m *memStore) Remove(_ context.Context, key string) error {
+	delete(m.objects, key)
+	return nil
+}
+
+func newTestAdapter(t *testing.T) (*fileUploadAdapter, *memStore) {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got.path = r.URL.Path
-		reader, err := r.MultipartReader()
-		require.NoError(t, err)
-		part, err := reader.NextPart()
-		require.NoError(t, err)
-		got.disposition = part.Header.Get("Content-Disposition")
-		got.filename = part.FileName()
-		got.contentType = part.Header.Get("Content-Type")
-		got.headers = http.Header(part.Header)
-		got.data, err = io.ReadAll(part)
-		require.NoError(t, err)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"path":"/img/user/stored.png"}`))
-	}))
-	t.Cleanup(srv.Close)
-	return srv
+	c, err := newImageCipher(make([]byte, KeySize))
+	require.NoError(t, err)
+	store := &memStore{objects: map[string][]byte{}}
+	return &fileUploadAdapter{store: store, cipher: c, baseURL: "https://host/auth/image"}, store
 }
 
-func TestUpload_SendsFileWithDetectedType(t *testing.T) {
-	var got received
-	srv := imageServer(t, &got)
-	adapter := NewFileUploadAdapter(&config.Config{UploadPath: srv.URL})
+var png = &domain.File{Name: "../evil.png", ContentType: "image/png", Data: []byte("\x89PNG-data")}
 
-	url, err := adapter.Upload(context.Background(), &domain.File{
-		Name: "pic.png", ContentType: "image/png", Data: []byte("\x89PNG-data"),
-	}, "user")
+func TestUpload_StoresEncryptedUnderGeneratedName(t *testing.T) {
+	a, store := newTestAdapter(t)
+
+	url, err := a.Upload(context.Background(), png, "user")
 	require.NoError(t, err)
 
-	assert.Equal(t, srv.URL+"/img/user/stored.png", url)
-	assert.Equal(t, "/api/image/user", got.path)
-	assert.Equal(t, "pic.png", got.filename)
-	assert.Equal(t, "image/png", got.contentType)
-	assert.Equal(t, []byte("\x89PNG-data"), got.data)
-}
-
-func TestUpload_FilenameCannotInjectHeaders(t *testing.T) {
-	var got received
-	srv := imageServer(t, &got)
-	adapter := NewFileUploadAdapter(&config.Config{UploadPath: srv.URL})
-
-	_, err := adapter.Upload(context.Background(), &domain.File{
-		Name: "evil\"\r\nX-Injected: yes\r\n.png", ContentType: "image/png", Data: []byte("x"),
-	}, "user")
-	require.NoError(t, err)
-
-	assert.Empty(t, got.headers.Get("X-Injected"), "client filename injected a header")
-	_, params, err := mime.ParseMediaType(got.disposition)
-	require.NoError(t, err)
-	assert.Equal(t, "file", params["name"])
-	assert.NotContains(t, params["filename"], "\r")
-	assert.NotContains(t, params["filename"], "\n")
-}
-
-func TestUpload_HonoursContext(t *testing.T) {
-	var got received
-	srv := imageServer(t, &got)
-	adapter := NewFileUploadAdapter(&config.Config{UploadPath: srv.URL})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := adapter.Upload(ctx, &domain.File{Name: "a.png", ContentType: "image/png", Data: []byte("x")}, "user")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, context.Canceled)
-}
-
-func TestSafeFilename(t *testing.T) {
-	tests := map[string]string{
-		"pic.png":                "pic.png",
-		"../../etc/passwd":       "passwd",
-		`C:\Users\me\pic.png`:    "pic.png",
-		"a\r\nb.png":             "ab.png",
-		"":                       "upload",
-		"/":                      "upload",
-		"ภาพถ่าย.jpg":            "ภาพถ่าย.jpg",
-		"name with \"quotes\".j": "name with \"quotes\".j",
-	}
-	for in, want := range tests {
-		assert.Equal(t, want, safeFilename(in), in)
+	assert.Regexp(t, regexp.MustCompile(`^https://host/auth/image/user/[0-9a-f-]{36}\.png$`), url)
+	require.Len(t, store.objects, 1)
+	for key, data := range store.objects {
+		assert.Contains(t, url, key)
+		assert.NotContains(t, string(data), "PNG-data", "stored bytes must be ciphertext")
 	}
 }
 
-// Non-ASCII names survive the trip; FormatMediaType encodes them per RFC 2231.
-func TestUpload_NonASCIIFilenameRoundTrips(t *testing.T) {
-	var got received
-	srv := imageServer(t, &got)
-	adapter := NewFileUploadAdapter(&config.Config{UploadPath: srv.URL})
-
-	_, err := adapter.Upload(context.Background(), &domain.File{Name: "ภาพ.png", ContentType: "image/png", Data: []byte("x")}, "user")
+func TestUpload_RoundTrip(t *testing.T) {
+	a, _ := newTestAdapter(t)
+	url, err := a.Upload(context.Background(), png, "tenant")
 	require.NoError(t, err)
-	assert.Equal(t, "ภาพ.png", got.filename)
+
+	got, err := a.Download(context.Background(), "tenant", url[len("https://host/auth/image/tenant/"):])
+	require.NoError(t, err)
+	assert.Equal(t, png.Data, got.Data)
+	assert.Equal(t, "image/png", got.ContentType)
+}
+
+func TestUpload_Rejections(t *testing.T) {
+	a, store := newTestAdapter(t)
+	_, err := a.Upload(context.Background(), &domain.File{ContentType: "image/gif", Data: []byte("x")}, "user")
+	assert.EqualError(t, err, "unsupported image type")
+	_, err = a.Upload(context.Background(), png, "../etc")
+	assert.Error(t, err)
+	assert.Empty(t, store.objects)
+
+	store.failPut = true
+	_, err = a.Upload(context.Background(), png, "user")
+	assert.Error(t, err)
+}
+
+func TestDelete_UsesLastSegmentAndIgnoresLegacyURLs(t *testing.T) {
+	a, store := newTestAdapter(t)
+	url, err := a.Upload(context.Background(), png, "user")
+	require.NoError(t, err)
+
+	require.NoError(t, a.Delete("user", "https://old-image-service/img/user/other.png"))
+	assert.Len(t, store.objects, 1, "a legacy URL removes nothing here")
+
+	require.NoError(t, a.Delete("user", url))
+	assert.Empty(t, store.objects)
+	assert.NoError(t, a.Delete("user", ""))
+	assert.Error(t, a.Delete("nope", "x.png"))
+}
+
+func TestDownload_RejectsBadNamesAndMissing(t *testing.T) {
+	a, _ := newTestAdapter(t)
+	for _, tc := range [][2]string{{"user", "../x.png"}, {"other", "x.png"}, {"user", ""}, {"user", "missing.png"}} {
+		_, err := a.Download(context.Background(), tc[0], tc[1])
+		assert.EqualError(t, err, "image not found", tc)
+	}
+}
+
+func TestUnconfigured(t *testing.T) {
+	a, err := New(&configEmpty)
+	require.NoError(t, err)
+	_, err = a.Upload(context.Background(), png, "user")
+	assert.ErrorIs(t, err, errNotConfigured)
 }

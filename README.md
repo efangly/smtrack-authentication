@@ -152,8 +152,13 @@ REDIS_PASSWORD=
 # RabbitMQ
 RABBITMQ=amqp://user:password@host:5672/
 
-# File Upload
-UPLOAD_PATH=/path/to/upload/directory
+# Pictures (MinIO, encrypted with AES-256-GCM; the bucket is created at startup if missing)
+S3_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY=...
+S3_SECRET_KEY=...
+S3_BUCKET=auth-bucket
+IMAGE_ENCRYPTION_KEY=   # openssl rand -base64 32
+IMAGE_BASE_URL=https://host/auth/image
 
 # Logging
 LOG_LEVEL=warn
@@ -218,7 +223,7 @@ kubectl apply -f k8s/purge-cronjob.yaml   # weekly removal of expired soft-delet
 # k8s/import-legacy-job.yaml is a one-off, applied only during cutover (see the runbook)
 ```
 
-ConfigMaps still used for non-secret settings: `authentication-config` (upload path, trusted
+ConfigMaps still used for non-secret settings: `authentication-config` (MinIO endpoint and bucket, image base URL, trusted
 proxies), `redis-config`, `rabbitmq-config`. The security mapping is in
 [`docs/security/iso27001-controls.md`](docs/security/iso27001-controls.md).
 

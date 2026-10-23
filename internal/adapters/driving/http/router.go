@@ -24,6 +24,7 @@ type Router struct {
 	departmentHandler *handlers.DepartmentHandler
 	auditHandler      *handlers.AuditHandler
 	healthHandler     *handlers.HealthHandler
+	imageHandler      *handlers.ImageHandler
 }
 
 func NewRouter(
@@ -36,6 +37,7 @@ func NewRouter(
 	departmentHandler *handlers.DepartmentHandler,
 	auditHandler *handlers.AuditHandler,
 	healthHandler *handlers.HealthHandler,
+	imageHandler *handlers.ImageHandler,
 ) *Router {
 	return &Router{
 		app:               app,
@@ -47,6 +49,7 @@ func NewRouter(
 		departmentHandler: departmentHandler,
 		auditHandler:      auditHandler,
 		healthHandler:     healthHandler,
+		imageHandler:      imageHandler,
 	}
 }
 
@@ -85,6 +88,9 @@ func (r *Router) Setup() {
 
 	// Health check
 	auth.Get("/health", r.healthHandler.Check)
+
+	// Stored pictures (public, like the image URLs they replace)
+	auth.Get("/image/:path/:name", r.imageHandler.Get)
 
 	// JWT-protected middleware
 	jwtAuth := middleware.JWTAuth(r.tokens)

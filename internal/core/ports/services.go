@@ -91,3 +91,9 @@ type AuditService interface {
 	Record(ctx context.Context, entity domain.AuditEntity, action domain.AuditAction, entityID string, caller *domain.Actor, changes any)
 	FindAll(ctx context.Context, filter AuditFilter) ([]domain.AuditLog, error)
 }
+
+// ImageService defines the driving port for reading stored pictures.
+type ImageService interface {
+	// Get returns a decrypted picture. Unknown names read as "image not found".
+	Get(ctx context.Context, path string, name string) (*domain.File, error)
+}

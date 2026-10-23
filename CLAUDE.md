@@ -186,6 +186,13 @@ These were bugs once. Do not regress them.
   `c.FormFile` directly in a handler.
 - CORS lives in `main.go` on purpose even though KrakenD also sets it; leave it unless
   asked. Rate limiting on `/auth/login` and `/auth/register` is per-client-IP and
+- **Pictures live encrypted in MinIO** (ADR 0005). The upload adapter seals each image with
+  AES-256-GCM (`IMAGE_ENCRYPTION_KEY`, base64 32 bytes; first byte = key version), names the
+  object `<user|tenant>/<uuid>.<ext>` (the client filename is never used) and returns
+  `IMAGE_BASE_URL/<folder>/<name>`, which `pic` stores. `GET /auth/image/:path/:name` decrypts
+  and serves it without a token; the generated name is the secret. `Delete` still takes the
+  last URL segment, so `pic` values carried over from the old image service remove nothing.
+  `S3_ENDPOINT` unset = uploads fail, the rest runs. The bucket is created if missing.
   in-process — it resets on restart and is not shared across replicas. The key comes from
   `middleware.TrustedProxies.ClientIP`: when the peer is in `TRUSTED_PROXIES` it walks
   `X-Forwarded-For` **from the right** and takes the first untrusted hop. Never switch it

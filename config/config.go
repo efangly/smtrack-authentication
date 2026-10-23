@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -18,7 +19,6 @@ type Config struct {
 	JWTRefreshSecret  string
 	ExpireTime        string
 	RefreshExpireTime string
-	UploadPath        string
 	RedisHost         string
 	RedisPassword     string
 	RabbitMQURL       string
@@ -28,6 +28,16 @@ type Config struct {
 	// front of this service (KrakenD), from comma-separated TRUSTED_PROXIES.
 	// Empty means the TCP peer is the client.
 	TrustedProxies []string
+	// Picture storage in MinIO (S3_ENDPOINT unset = uploads unavailable).
+	S3Endpoint  string
+	S3AccessKey string
+	S3SecretKey string
+	S3Bucket    string
+	// ImageEncryptionKey is the base64 AES-256 key pictures are sealed with.
+	ImageEncryptionKey string
+	// ImageBaseURL is the public prefix of GET /auth/image, stored in front of
+	// each picture's name (e.g. https://host/auth/image).
+	ImageBaseURL string
 	// BcryptCost is the work factor for new password hashes (BCRYPT_COST, at least 12).
 	BcryptCost int
 }
@@ -37,6 +47,8 @@ const (
 	MinSecretLength = 32
 	// MinBcryptCost is the lowest work factor accepted.
 	MinBcryptCost = 12
+	// MinImageKeyBytes is the AES-256 key length IMAGE_ENCRYPTION_KEY must decode to.
+	MinImageKeyBytes = 32
 )
 
 // Validate refuses configuration that weakens the service's cryptography. A secret that is
@@ -55,6 +67,20 @@ func (c *Config) Validate() error {
 	if c.BcryptCost < MinBcryptCost || c.BcryptCost > 31 {
 		return fmt.Errorf("BCRYPT_COST must be between %d and 31", MinBcryptCost)
 	}
+	if c.S3Endpoint != "" {
+		if c.S3AccessKey == "" || c.S3SecretKey == "" || c.S3Bucket == "" {
+			return errors.New("S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET are required with S3_ENDPOINT")
+		}
+		if c.ImageBaseURL == "" {
+			return errors.New("IMAGE_BASE_URL is required with S3_ENDPOINT")
+		}
+		if _, err := base64.StdEncoding.DecodeString(c.ImageEncryptionKey); err != nil || len(c.ImageEncryptionKey) == 0 {
+			return errors.New("IMAGE_ENCRYPTION_KEY must be base64")
+		}
+		if raw, _ := base64.StdEncoding.DecodeString(c.ImageEncryptionKey); len(raw) != MinImageKeyBytes {
+			return fmt.Errorf("IMAGE_ENCRYPTION_KEY must decode to %d bytes", MinImageKeyBytes)
+		}
+	}
 	return nil
 }
 
@@ -66,20 +92,25 @@ func LoadDotEnv() {
 
 func Load() *Config {
 	cfg := &Config{
-		DatabaseURL:       getEnv("DATABASE_URL", ""),
-		Port:              getEnv("PORT", "8080"),
-		JWTSecret:         getEnv("JWT_SECRET", ""),
-		JWTRefreshSecret:  getEnv("JWT_REFRESH_SECRET", ""),
-		ExpireTime:        getEnv("EXPIRE_TIME", "15m"),
-		RefreshExpireTime: getEnv("REFRESH_EXPIRE_TIME", "7d"),
-		UploadPath:        getEnv("UPLOAD_PATH", ""),
-		RedisHost:         getEnv("REDIS_HOST", "localhost:6379"),
-		RedisPassword:     getEnv("REDIS_PASSWORD", ""),
-		RabbitMQURL:       getEnv("RABBITMQ", ""),
-		NodeEnv:           getEnv("NODE_ENV", "production"),
-		LogLevel:          getEnv("LOG_LEVEL", "warn"),
-		TrustedProxies:    splitList(getEnv("TRUSTED_PROXIES", "")),
-		BcryptCost:        getEnvInt("BCRYPT_COST", MinBcryptCost),
+		DatabaseURL:        getEnv("DATABASE_URL", ""),
+		Port:               getEnv("PORT", "8080"),
+		JWTSecret:          getEnv("JWT_SECRET", ""),
+		JWTRefreshSecret:   getEnv("JWT_REFRESH_SECRET", ""),
+		ExpireTime:         getEnv("EXPIRE_TIME", "15m"),
+		RefreshExpireTime:  getEnv("REFRESH_EXPIRE_TIME", "7d"),
+		S3Endpoint:         getEnv("S3_ENDPOINT", ""),
+		S3AccessKey:        getEnv("S3_ACCESS_KEY", ""),
+		S3SecretKey:        getEnv("S3_SECRET_KEY", ""),
+		S3Bucket:           getEnv("S3_BUCKET", ""),
+		ImageEncryptionKey: getEnv("IMAGE_ENCRYPTION_KEY", ""),
+		ImageBaseURL:       getEnv("IMAGE_BASE_URL", ""),
+		RedisHost:          getEnv("REDIS_HOST", "localhost:6379"),
+		RedisPassword:      getEnv("REDIS_PASSWORD", ""),
+		RabbitMQURL:        getEnv("RABBITMQ", ""),
+		NodeEnv:            getEnv("NODE_ENV", "production"),
+		LogLevel:           getEnv("LOG_LEVEL", "warn"),
+		TrustedProxies:     splitList(getEnv("TRUSTED_PROXIES", "")),
+		BcryptCost:         getEnvInt("BCRYPT_COST", MinBcryptCost),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -93,9 +124,6 @@ func Load() *Config {
 	}
 	if err := cfg.Validate(); err != nil {
 		logger.Fatal("Invalid configuration", "error", err)
-	}
-	if cfg.UploadPath == "" {
-		logger.Warn("UPLOAD_PATH is not set - file upload will be unavailable")
 	}
 
 	return cfg

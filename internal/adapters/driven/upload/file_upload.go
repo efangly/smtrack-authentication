@@ -3,14 +3,10 @@ package upload
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
-	"net/http"
-	"net/textproto"
-	"path/filepath"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,127 +14,221 @@ import (
 	"github.com/efangly/smtrack-authentication/internal/core/domain"
 	"github.com/efangly/smtrack-authentication/internal/core/ports"
 	"github.com/efangly/smtrack-authentication/pkg/logger"
+	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// uploadTimeout bounds every call to the image service. Without it a hung
-// upstream would pin the request goroutine forever.
-const uploadTimeout = 30 * time.Second
+// storeTimeout bounds every call to MinIO. Without it a hung server would pin
+// the request goroutine forever.
+const storeTimeout = 30 * time.Second
 
-type fileUploadAdapter struct {
-	uploadPath string
-	client     *http.Client
+// extensions maps the sniffed content type to the object name suffix. Only
+// these three types ever pass handlers.formFile, and the suffix is what the
+// image endpoint uses to answer with the right Content-Type.
+var extensions = map[string]string{
+	"image/jpeg": "jpg",
+	"image/png":  "png",
+	"image/webp": "webp",
 }
 
-func NewFileUploadAdapter(cfg *config.Config) ports.FileUploadPort {
-	return &fileUploadAdapter{
-		uploadPath: cfg.UploadPath,
-		client:     &http.Client{Timeout: uploadTimeout},
+// folders are the only prefixes the services use.
+var folders = map[string]bool{"user": true, "tenant": true}
+
+// objectStore is the slice of MinIO this adapter needs; tests replace it.
+type objectStore interface {
+	Put(ctx context.Context, key string, data []byte) error
+	Get(ctx context.Context, key string) ([]byte, error)
+	Remove(ctx context.Context, key string) error
+}
+
+type fileUploadAdapter struct {
+	store   objectStore
+	cipher  *imageCipher
+	baseURL string
+}
+
+// New builds the adapter. With S3_ENDPOINT unset it returns one whose uploads
+// fail, so the rest of the service still starts, as it did without the old image service URL.
+func New(cfg *config.Config) (ports.FileUploadPort, error) {
+	if cfg.S3Endpoint == "" {
+		return unconfigured{}, nil
 	}
+	key, err := ParseKey(cfg.ImageEncryptionKey)
+	if err != nil {
+		return nil, err
+	}
+	c, err := newImageCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	store, err := newMinioStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &fileUploadAdapter{store: store, cipher: c, baseURL: strings.TrimRight(cfg.ImageBaseURL, "/")}, nil
+}
+
+// NewFileUploadAdapter is New for main.go, where a bad configuration is fatal.
+func NewFileUploadAdapter(cfg *config.Config) ports.FileUploadPort {
+	adapter, err := New(cfg)
+	if err != nil {
+		logger.Fatal("Image storage is misconfigured", "error", err)
+	}
+	if _, off := adapter.(unconfigured); off {
+		logger.Warn("S3_ENDPOINT is not set - file upload will be unavailable")
+	}
+	return adapter
 }
 
 func (f *fileUploadAdapter) Upload(ctx context.Context, file *domain.File, path string) (string, error) {
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	logger.Info("Uploading file", "filename", file.Name, "size", len(file.Data), "mimeType", file.ContentType)
+	ext, ok := extensions[file.ContentType]
+	if !ok {
+		return "", errors.New("unsupported image type")
+	}
+	if !folders[path] {
+		return "", fmt.Errorf("unknown image folder %q", path)
+	}
+	logger.Info("Uploading file", "size", len(file.Data), "mimeType", file.ContentType)
 
-	// FormatMediaType quotes and escapes the client-supplied name, so a name
-	// containing quotes or CR/LF cannot inject headers into the part sent
-	// upstream. CreatePart (not CreateFormFile, which always says
-	// application/octet-stream) carries the detected content type.
-	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
-		"name":     "file",
-		"filename": safeFilename(file.Name),
-	}))
-	h.Set("Content-Type", file.ContentType)
-	part, err := writer.CreatePart(h)
+	sealed, err := f.cipher.seal(file.Data)
 	if err != nil {
-		return "", fmt.Errorf("failed to create form file: %w", err)
+		return "", err
 	}
-
-	if _, err := part.Write(file.Data); err != nil {
-		return "", fmt.Errorf("failed to copy file: %w", err)
+	// The client's filename is never used: a generated name cannot collide or
+	// traverse, and cannot be guessed by someone who was not given the URL.
+	name := uuid.NewString() + "." + ext
+	if err := f.store.Put(ctx, path+"/"+name, sealed); err != nil {
+		return "", err
 	}
-	writer.Close()
-
-	url := fmt.Sprintf("%s/api/image/%s", f.uploadPath, path)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("upload request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read upload response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		logger.Error("Upload server returned error", "status", resp.StatusCode, "body", string(respBody))
-		return "", fmt.Errorf("upload server error: status %d, body: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result struct {
-		Path string `json:"path"`
-	}
-
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("failed to decode upload response: %w", err)
-	}
-
-	if result.Path == "" {
-		return "", fmt.Errorf("upload succeeded but no path returned, response: %s", string(respBody))
-	}
-
-	return fmt.Sprintf("%s%s", f.uploadPath, result.Path), nil
+	return f.baseURL + "/" + path + "/" + name, nil
 }
 
-// safeFilename keeps only the base name of what the client sent, with control
-// characters removed; an empty result becomes "upload".
-func safeFilename(name string) string {
-	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
-	name = strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, name)
-	if name == "" || name == "." || name == "/" {
-		return "upload"
-	}
-	return name
-}
-
+// Delete takes the last segment of filename (a stored URL or a bare name), as
+// the image service adapter did. A value that was never stored here, such as a
+// URL carried over from the old image service, removes nothing and is not an error.
 func (f *fileUploadAdapter) Delete(path string, filename string) error {
 	if filename == "" {
 		return nil
 	}
-
+	if !folders[path] {
+		return fmt.Errorf("unknown image folder %q", path)
+	}
 	parts := strings.Split(filename, "/")
-	fname := parts[len(parts)-1]
+	ctx, cancel := context.WithTimeout(context.Background(), storeTimeout)
+	defer cancel()
+	return f.store.Remove(ctx, path+"/"+parts[len(parts)-1])
+}
 
-	url := fmt.Sprintf("%s/api/image/%s/%s", f.uploadPath, path, fname)
-	req, err := http.NewRequest("DELETE", url, nil)
+func (f *fileUploadAdapter) Download(ctx context.Context, path string, filename string) (*domain.File, error) {
+	if !folders[path] || filename == "" || strings.Contains(filename, "/") {
+		return nil, errors.New("image not found")
+	}
+	sealed, err := f.store.Get(ctx, path+"/"+filename)
 	if err != nil {
-		return fmt.Errorf("failed to create delete request: %w", err)
+		return nil, err
 	}
-
-	resp, err := f.client.Do(req)
+	data, err := f.cipher.open(sealed)
 	if err != nil {
-		return fmt.Errorf("delete request failed: %w", err)
+		return nil, fmt.Errorf("open %s/%s: %w", path, filename, err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete server error: status %d, body: %s", resp.StatusCode, string(respBody))
+	ct := "application/octet-stream"
+	for mimeType, ext := range extensions {
+		if strings.HasSuffix(filename, "."+ext) {
+			ct = mimeType
+		}
 	}
+	return &domain.File{Name: filename, ContentType: ct, Data: data}, nil
+}
 
+// unconfigured is the adapter when S3_ENDPOINT is not set.
+type unconfigured struct{}
+
+var errNotConfigured = errors.New("image storage is not configured")
+
+func (unconfigured) Upload(context.Context, *domain.File, string) (string, error) {
+	return "", fmt.Errorf("upload: %w", errNotConfigured)
+}
+func (unconfigured) Delete(string, string) error { return fmt.Errorf("delete: %w", errNotConfigured) }
+func (unconfigured) Download(context.Context, string, string) (*domain.File, error) {
+	return nil, fmt.Errorf("download: %w", errNotConfigured)
+}
+
+// minioStore is the objectStore backed by a real MinIO server.
+type minioStore struct {
+	client *minio.Client
+	bucket string
+}
+
+// newMinioStore reads the scheme of S3_ENDPOINT to decide on TLS, because the
+// client wants a bare host:port, and checks that the bucket exists.
+func newMinioStore(cfg *config.Config) (*minioStore, error) {
+	endpoint := cfg.S3Endpoint
+	secure := false
+	if strings.Contains(endpoint, "://") {
+		u, err := url.Parse(endpoint)
+		if err != nil || u.Host == "" {
+			return nil, errors.New("S3_ENDPOINT is not a valid URL")
+		}
+		endpoint, secure = u.Host, u.Scheme == "https"
+	}
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
+		Secure: secure,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create minio client: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), storeTimeout)
+	defer cancel()
+	exists, err := client.BucketExists(ctx, cfg.S3Bucket)
+	if err != nil {
+		return nil, fmt.Errorf("check bucket %q: %w", cfg.S3Bucket, err)
+	}
+	if !exists {
+		// Private by default: MinIO buckets have no public policy unless one is set.
+		if err := client.MakeBucket(ctx, cfg.S3Bucket, minio.MakeBucketOptions{}); err != nil {
+			return nil, fmt.Errorf("create bucket %q: %w", cfg.S3Bucket, err)
+		}
+		logger.Info("Created image bucket", "bucket", cfg.S3Bucket)
+	}
+	return &minioStore{client: client, bucket: cfg.S3Bucket}, nil
+}
+
+func (s *minioStore) Put(ctx context.Context, key string, data []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
+	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)),
+		minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	if err != nil {
+		return fmt.Errorf("put object: %w", err)
+	}
+	return nil
+}
+
+func (s *minioStore) Get(ctx context.Context, key string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
+	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get object: %w", err)
+	}
+	defer obj.Close()
+	data, err := io.ReadAll(obj)
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+			return nil, errors.New("image not found")
+		}
+		return nil, fmt.Errorf("read object: %w", err)
+	}
+	return data, nil
+}
+
+func (s *minioStore) Remove(ctx context.Context, key string) error {
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
+	if err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("remove object: %w", err)
+	}
 	return nil
 }

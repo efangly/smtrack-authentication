@@ -24,6 +24,9 @@ type fakeFiles struct {
 }
 
 func (f *fakeFiles) Upload(context.Context, *domain.File, string) (string, error) { return "", nil }
+func (f *fakeFiles) Download(context.Context, string, string) (*domain.File, error) {
+	return nil, nil
+}
 func (f *fakeFiles) Delete(path, name string) error {
 	if f.fail {
 		return errors.New("upload service down")

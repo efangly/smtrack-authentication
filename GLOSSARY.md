@@ -119,3 +119,7 @@ _Avoid_: History, activity log, event log
 A report of every user with their role, status, tenant, departments and last sign-in, used to
 check that people still hold only the access they need.
 _Avoid_: Audit (that is the Audit log), user export
+
+**Picture**:
+The image of a user or a tenant. It is stored encrypted, and anyone holding its address can view it.
+_Avoid_: Avatar, logo, photo

@@ -220,6 +220,10 @@ type mockUpload struct {
 	DeleteFn func(path string, filename string) error
 }
 
+func (m *mockUpload) Download(context.Context, string, string) (*domain.File, error) {
+	return nil, nil
+}
+
 func newMockUpload() *mockUpload {
 	return &mockUpload{
 		UploadFn: func(_ *domain.File, _ string) (string, error) {

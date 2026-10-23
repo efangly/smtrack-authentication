@@ -156,6 +156,7 @@ func newTestRouterCfg(cfg *config.Config, rec *recorder, auditSvc ports.AuditSer
 		handlers.NewDepartmentHandler(stubDepartmentService{rec}),
 		handlers.NewAuditHandler(auditSvc),
 		handlers.NewHealthHandler(),
+		handlers.NewImageHandler(nil),
 	).Setup()
 	return app
 }

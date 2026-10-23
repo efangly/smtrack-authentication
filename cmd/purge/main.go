@@ -1,7 +1,7 @@
 // Command purge permanently removes records soft-deleted longer ago than
 // SOFT_DELETE_RETENTION (default 365d), with their pictures. Run it from a scheduled job.
 //
-//	DATABASE_URL=... UPLOAD_PATH=... purge [--dry-run]
+//	DATABASE_URL=... S3_ENDPOINT=... S3_ACCESS_KEY=... S3_SECRET_KEY=... S3_BUCKET=... IMAGE_ENCRYPTION_KEY=... purge [--dry-run]
 package main
 
 import (
@@ -45,7 +45,16 @@ func run(dry bool) error {
 	}
 	defer db.Close()
 
-	files := upload.NewFileUploadAdapter(&config.Config{UploadPath: os.Getenv("UPLOAD_PATH")})
+	files, err := upload.New(&config.Config{
+		S3Endpoint:         os.Getenv("S3_ENDPOINT"),
+		S3AccessKey:        os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey:        os.Getenv("S3_SECRET_KEY"),
+		S3Bucket:           os.Getenv("S3_BUCKET"),
+		ImageEncryptionKey: os.Getenv("IMAGE_ENCRYPTION_KEY"),
+	})
+	if err != nil {
+		return err
+	}
 	cutoff := time.Now().Add(-retention)
 	res, err := purge.Run(context.Background(), db, files, cutoff, dry)
 	if err != nil {
